@@ -13,6 +13,12 @@ export default function LandingPage() {
   }
   
   const handleGetStarted = async () => {
+    if (process.env.NEXT_PUBLIC_TESTING === "true") {
+      // Simulate verification in testing mode
+      localStorage.setItem('world-id-verified', 'true')
+      window.location.href = '/homepage'
+      return
+    }
     if (!MiniKit.isInstalled()) {
       setVerifyError("World ID MiniKit is not installed. Please install the World App.")
       return
@@ -44,8 +50,8 @@ export default function LandingPage() {
       if (verifyResponseJson.status === 200) {
         console.log('Verification success!')
         localStorage.setItem('world-id-verified', 'true')
-        // Verification successful - you can add navigation or state change here
         setVerifyError(null)
+        window.location.href = '/homepage'
       } else {
         setVerifyError("Verification failed. Please try again.")
       }
