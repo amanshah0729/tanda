@@ -1,14 +1,29 @@
 "use client"
 
+import { useState } from "react"
 import { GroupTableRow } from "@/components/group-table-row"
+import { CreateGroupModal } from "@/components/create-group-modal"
 
 export default function HomePage() {
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
   // Sample data - replace with actual data from your backend
   const groups = [
     { id: 1, name: "Family Savings", numberOfPeople: 5 },
     { id: 2, name: "Vacation Fund", numberOfPeople: 8 },
     { id: 3, name: "Emergency Fund", numberOfPeople: 3 },
   ]
+
+  const handleCreateGroup = (data: {
+    participants: string[]
+    paymentAmount: string
+    paymentFrequency: string
+  }) => {
+    console.log("Creating group with data:", data)
+    // TODO: Call smart contract to create Tanda
+    // For now, just log the data
+    alert(`Group creation data:\nParticipants: ${data.participants.length}\nPayment: ${data.paymentAmount} (wei)\nFrequency: ${data.paymentFrequency} seconds`)
+  }
 
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
@@ -19,10 +34,7 @@ export default function HomePage() {
             <h1 className="text-2xl md:text-3xl font-bold text-white">Dashboard</h1>
             <div className="flex gap-3">
               <button
-                onClick={() => {
-                  // Handle Start Group
-                  console.log('Start Group clicked')
-                }}
+                onClick={() => setIsModalOpen(true)}
                 className="py-2 px-4 bg-[#ff1493] text-white font-semibold text-sm rounded-lg hover:opacity-90 transition-opacity"
               >
                 Start Group
@@ -65,6 +77,13 @@ export default function HomePage() {
           </table>
         </div>
       </div>
+
+      {/* Create Group Modal */}
+      <CreateGroupModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSubmit={handleCreateGroup}
+      />
     </div>
   )
 }
