@@ -1,7 +1,17 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { MiniKit } from '@worldcoin/minikit-js'
 import { CreateGroupModal } from "@/components/create-group-modal"
+import TandaArtifact from "@/abi/Tanda.json"
+import Permit2ABI from "@/abi/Permit2.json"
+
+// Extract ABI from artifact
+const TandaABI = TandaArtifact.abi
+
+// Constants
+const PERMIT2_ADDRESS = "0xF0882554ee924278806d708396F1a7975b732522" as `0x${string}` // Standard Permit2 address
+const USDC_ADDRESS = "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1" as `0x${string}` // USDC on World Chain
 
 interface TandaData {
   name: string
@@ -18,6 +28,7 @@ interface TandaOnChainData {
   vaultBalance: string
   nextPaymentDue: string
   claimDate: string
+  hasPaid: boolean | null
 }
 
 export default function HomePage() {
@@ -26,6 +37,7 @@ export default function HomePage() {
   const [tandas, setTandas] = useState<TandaData[]>([])
   const [tandaOnChainData, setTandaOnChainData] = useState<Record<string, TandaOnChainData>>({})
   const [isLoading, setIsLoading] = useState(true)
+  const [payingTanda, setPayingTanda] = useState<string | null>(null)
 
   // Fetch Tandas from API
   const fetchTandas = async () => {
@@ -36,18 +48,25 @@ export default function HomePage() {
         const tandasList = result.tandas || []
         setTandas(tandasList)
         
+        // Get user's wallet address
+        const userAddress = localStorage.getItem('wallet-address')
+        
         // Fetch on-chain data for each Tanda
         const onChainData: Record<string, TandaOnChainData> = {}
         await Promise.all(
           tandasList.map(async (tanda: TandaData) => {
             try {
-              const tandaResponse = await fetch(`/api/tanda/${tanda.tandaAddress}`)
+              const url = userAddress 
+                ? `/api/tanda/${tanda.tandaAddress}?userAddress=${userAddress}`
+                : `/api/tanda/${tanda.tandaAddress}`
+              const tandaResponse = await fetch(url)
               const tandaResult = await tandaResponse.json()
               if (tandaResult.success) {
                 onChainData[tanda.tandaAddress] = {
                   vaultBalance: tandaResult.data.vaultBalance,
                   nextPaymentDue: tandaResult.data.nextPaymentDue,
                   claimDate: tandaResult.data.claimDate,
+                  hasPaid: tandaResult.data.hasPaid,
                 }
               }
             } catch (error) {
@@ -164,6 +183,127 @@ export default function HomePage() {
     }
   }
 
+  const handlePay = async (tandaAddress: string) => {
+    if (!MiniKit.isInstalled()) {
+      alert("World ID MiniKit is not installed. Please install the World App.")
+      return
+    }
+
+    const userAddress = localStorage.getItem('wallet-address')
+    if (!userAddress) {
+      alert("Please sign in first")
+      return
+    }
+
+    // Get Tanda data
+    const tanda = tandas.find(t => t.tandaAddress.toLowerCase() === tandaAddress.toLowerCase())
+    if (!tanda) return
+
+    const onChainData = tandaOnChainData[tandaAddress]
+    if (!onChainData) {
+      alert("Loading Tanda data...")
+      return
+    }
+
+    // Check if already paid
+    if (onChainData.hasPaid === true) {
+      alert("You have already paid for this cycle!")
+      return
+    }
+
+    setPayingTanda(tandaAddress)
+
+    try {
+      // Payment amount in wei (6 decimals for USDC) - keep as string for consistency
+      const paymentAmount = String(tanda.paymentAmount)
+      
+      // Capture timestamp once to ensure consistency between nonce and deadline
+      const now = Date.now()
+      const nonce = String(now)
+      const deadline = String(Math.floor((now + 60 * 1000) / 1000)) // 1 minute for dev
+      
+      // Permit2 permit data - values must match exactly between permit2 array and args
+      const permitTransfer = {
+        permitted: {
+          token: USDC_ADDRESS,
+          amount: paymentAmount,
+        },
+        nonce: nonce,
+        deadline: deadline,
+      }
+
+      const transferDetails = {
+        to: tandaAddress as `0x${string}`,
+        requestedAmount: paymentAmount,
+      }
+
+      // Call Permit2 signatureTransfer + Tanda payAfterPermit2
+      // Using nested array format that matches Permit2 ABI structure exactly
+      const { commandPayload, finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [
+          {
+            // First transaction: Permit2 signatureTransfer (transfers USDC)
+            address: PERMIT2_ADDRESS,
+            abi: Permit2ABI as any,
+            functionName: 'signatureTransfer',
+            args: [
+              // PermitTransferFrom struct: [permitted (TokenPermissions), nonce, deadline]
+              [
+                // TokenPermissions struct: [token, amount]
+                [
+                  permitTransfer.permitted.token,
+                  permitTransfer.permitted.amount,
+                ],
+                permitTransfer.nonce,
+                permitTransfer.deadline,
+              ],
+              // SignatureTransferDetails struct: [to, requestedAmount]
+              [
+                transferDetails.to,
+                transferDetails.requestedAmount,
+              ],
+              'PERMIT2_SIGNATURE_PLACEHOLDER_0', // Placeholder will be replaced with correct signature
+            ],
+          },
+          {
+            // Second transaction: Tanda payAfterPermit2 (marks as paid)
+            address: tandaAddress as `0x${string}`,
+            abi: TandaABI as any,
+            functionName: 'payAfterPermit2',
+            args: [userAddress as `0x${string}`],
+          },
+        ],
+        permit2: [
+          {
+            ...permitTransfer,
+            spender: tandaAddress as `0x${string}`,
+          },
+        ],
+        formatPayload: true, // Re-enable formatting - let MiniKit handle proper encoding
+      })
+
+      if (finalPayload.status === 'error') {
+        const errorMsg = (finalPayload as any).error || (finalPayload as any).message || 'Transaction failed'
+        throw new Error(errorMsg)
+      }
+
+      // Success!
+      alert(
+        `✅ Payment successful!\n\n` +
+        `Transaction ID: ${finalPayload.transaction_id}\n\n` +
+        `Your payment has been recorded.`
+      )
+
+      // Refresh Tanda data
+      await fetchTandas()
+    } catch (error: any) {
+      console.error('Error paying:', error)
+      alert(`Error making payment: ${error.message || 'Unknown error'}`)
+    } finally {
+      setPayingTanda(null)
+    }
+  }
+
   return (
     <div className="fixed inset-0 bg-black overflow-hidden">
       <div className="relative w-full h-full flex flex-col">
@@ -217,18 +357,15 @@ export default function HomePage() {
                     <div className="flex items-start justify-between mb-4">
                       <div>
                         <h3 className="text-xl font-bold text-white mb-1">{tanda.name}</h3>
-                        <p className="text-sm text-gray-400 font-mono">
+                        <button
+                          onClick={() => {
+                            window.open(`https://worldscan.org/address/${tanda.tandaAddress}`, '_blank')
+                          }}
+                          className="text-xs text-gray-400 hover:text-gray-300 font-mono transition-colors"
+                        >
                           {tanda.tandaAddress.slice(0, 10)}...{tanda.tandaAddress.slice(-8)}
-                        </p>
+                        </button>
                       </div>
-                      <button
-                        onClick={() => {
-                          window.open(`https://worldscan.org/address/${tanda.tandaAddress}`, '_blank')
-                        }}
-                        className="py-2 px-4 bg-[#ff1493] text-white font-semibold text-sm rounded-lg hover:opacity-90 transition-opacity"
-                      >
-                        View Contract
-                      </button>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -265,11 +402,28 @@ export default function HomePage() {
                       </div>
                     </div>
                     
-                    {/* Members count */}
-                    <div className="mt-4 pt-4 border-t border-gray-800">
+                    {/* Members count and Pay button */}
+                    <div className="mt-4 pt-4 border-t border-gray-800 flex items-center justify-between">
                       <p className="text-sm text-gray-400">
                         <span className="font-semibold text-white">{tanda.participants.length}</span> members
                       </p>
+                      {onChainData?.hasPaid === true ? (
+                        <span className="py-2 px-6 bg-gray-700 text-gray-300 font-semibold text-sm rounded-lg">
+                          Paid
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handlePay(tanda.tandaAddress)}
+                          disabled={payingTanda === tanda.tandaAddress}
+                          className={`py-2 px-6 font-semibold text-sm rounded-lg transition-opacity ${
+                            payingTanda === tanda.tandaAddress
+                              ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                              : 'bg-[#ff1493] text-white hover:opacity-90'
+                          }`}
+                        >
+                          {payingTanda === tanda.tandaAddress ? 'Paying...' : 'Pay'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )

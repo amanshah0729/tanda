@@ -1,16 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createPublicClient, http } from "viem"
-import TandaABI from "@/abi/Tanda.json"
+import TandaArtifact from "@/abi/Tanda.json"
+
+// Extract ABI from artifact
+const TandaABI = TandaArtifact.abi
 
 // World Chain configuration
 const WORLD_CHAIN_ID = 480
 
 export const GET = async (
   req: NextRequest,
-  { params }: { params: { address: string } }
+  { params }: { params: Promise<{ address: string }> }
 ) => {
   try {
-    const tandaAddress = params.address as `0x${string}`
+    const { address } = await params
+    const tandaAddress = address as `0x${string}`
     const rpcUrl = process.env.WLD_RPC_URL
 
     if (!rpcUrl) {
@@ -43,8 +47,11 @@ export const GET = async (
       transport: http(rpcUrl),
     })
 
+    // Get user address from query params (optional - for checking payment status)
+    const userAddress = req.nextUrl.searchParams.get('userAddress') as `0x${string}` | null
+
     // Fetch on-chain data
-    const [vaultBalance, cycleStartTime, paymentFrequency, currentRecipient, allHavePaid] = await Promise.all([
+    const [vaultBalance, cycleStartTime, paymentFrequency, currentRecipient, allHavePaid, paymentAmount] = await Promise.all([
       publicClient.readContract({
         address: tandaAddress,
         abi: TandaABI,
@@ -70,7 +77,23 @@ export const GET = async (
         abi: TandaABI,
         functionName: "allHavePaid",
       }),
+      publicClient.readContract({
+        address: tandaAddress,
+        abi: TandaABI,
+        functionName: "paymentAmount",
+      }),
     ])
+
+    // Check if user has paid (if userAddress provided)
+    let hasPaid = false
+    if (userAddress) {
+      hasPaid = await publicClient.readContract({
+        address: tandaAddress,
+        abi: TandaABI,
+        functionName: "hasPaidThisCycle",
+        args: [userAddress],
+      }) as boolean
+    }
 
     // Calculate dates
     const cycleStartTimestamp = Number(cycleStartTime) * 1000 // Convert to milliseconds
@@ -89,10 +112,12 @@ export const GET = async (
         vaultBalance: vaultBalance.toString(),
         cycleStartTime: cycleStartTime.toString(),
         paymentFrequency: paymentFrequency.toString(),
+        paymentAmount: paymentAmount.toString(),
         currentRecipient: currentRecipient as string,
         allHavePaid,
         nextPaymentDue: nextPaymentDue.toISOString(),
         claimDate: claimDate.toISOString(),
+        hasPaid: userAddress ? hasPaid : null,
       },
     })
   } catch (error: any) {
