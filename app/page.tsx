@@ -6,7 +6,7 @@ import { MiniKit, VerifyCommandInput, VerificationLevel, ISuccessResult } from '
 export default function LandingPage() {
   const [isVerifying, setIsVerifying] = useState(false)
   const [verifyError, setVerifyError] = useState<string | null>(null)
-
+  //d
   const verifyPayload: VerifyCommandInput = {
     action: 'chat',
     verification_level: VerificationLevel.Orb,
