@@ -9,6 +9,7 @@ interface CreateGroupModalProps {
   isOpen: boolean
   onClose: () => void
   onSubmit: (data: {
+    name: string
     participants: string[]
     paymentAmount: string
     paymentFrequency: string
@@ -16,6 +17,7 @@ interface CreateGroupModalProps {
 }
 
 export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModalProps) {
+  const [name, setName] = useState<string>("")
   const [participants, setParticipants] = useState<string>("")
   const [paymentAmount, setPaymentAmount] = useState<string>("")
   const [paymentFrequency, setPaymentFrequency] = useState<string>("")
@@ -38,6 +40,11 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
 
     if (invalidAddresses.length > 0) {
       alert(`Invalid addresses: ${invalidAddresses.join(", ")}`)
+      return
+    }
+
+    if (!name || name.trim().length === 0) {
+      alert("Please enter a group name")
       return
     }
 
@@ -77,12 +84,14 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
     const paymentAmountInWei = (parseFloat(paymentAmount) * 1e6).toString()
 
     onSubmit({
+      name: name.trim(),
       participants: participantList,
       paymentAmount: paymentAmountInWei,
       paymentFrequency: frequencyInSeconds.toString(),
     })
 
     // Reset form
+    setName("")
     setParticipants("")
     setPaymentAmount("")
     setPaymentFrequency("")
@@ -105,6 +114,24 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {/* Group Name */}
+          <div>
+            <label className="block text-sm font-semibold text-white/90 mb-2">
+              Group Name
+            </label>
+            <Input
+              type="text"
+              placeholder="e.g., Family Savings, Vacation Fund"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+              required
+            />
+            <p className="mt-1 text-xs text-gray-400">
+              Give your Tanda group a name
+            </p>
+          </div>
+
           {/* Participants */}
           <div>
             <label className="block text-sm font-semibold text-white/90 mb-2">

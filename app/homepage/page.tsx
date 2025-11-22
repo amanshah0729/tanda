@@ -1,21 +1,97 @@
 "use client"
 
-import { useState } from "react"
-import { GroupTableRow } from "@/components/group-table-row"
+import { useState, useEffect } from "react"
 import { CreateGroupModal } from "@/components/create-group-modal"
+
+interface TandaData {
+  name: string
+  tandaAddress: string
+  transactionHash: string
+  blockNumber: string
+  participants: string[]
+  paymentAmount: string
+  paymentFrequency: string
+  createdAt: string
+}
+
+interface TandaOnChainData {
+  vaultBalance: string
+  nextPaymentDue: string
+  claimDate: string
+}
 
 export default function HomePage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
+  const [tandas, setTandas] = useState<TandaData[]>([])
+  const [tandaOnChainData, setTandaOnChainData] = useState<Record<string, TandaOnChainData>>({})
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Sample data - replace with actual data from your backend
-  const groups = [
-    { id: 1, name: "Family Savings", numberOfPeople: 5 },
-    { id: 2, name: "Vacation Fund", numberOfPeople: 8 },
-    { id: 3, name: "Emergency Fund", numberOfPeople: 3 },
-  ]
+  // Fetch Tandas from API
+  const fetchTandas = async () => {
+    try {
+      const response = await fetch('/api/tandas')
+      const result = await response.json()
+      if (result.success) {
+        const tandasList = result.tandas || []
+        setTandas(tandasList)
+        
+        // Fetch on-chain data for each Tanda
+        const onChainData: Record<string, TandaOnChainData> = {}
+        await Promise.all(
+          tandasList.map(async (tanda: TandaData) => {
+            try {
+              const tandaResponse = await fetch(`/api/tanda/${tanda.tandaAddress}`)
+              const tandaResult = await tandaResponse.json()
+              if (tandaResult.success) {
+                onChainData[tanda.tandaAddress] = {
+                  vaultBalance: tandaResult.data.vaultBalance,
+                  nextPaymentDue: tandaResult.data.nextPaymentDue,
+                  claimDate: tandaResult.data.claimDate,
+                }
+              }
+            } catch (error) {
+              console.error(`Error fetching data for ${tanda.tandaAddress}:`, error)
+            }
+          })
+        )
+        setTandaOnChainData(onChainData)
+      }
+    } catch (error) {
+      console.error('Error fetching Tandas:', error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  
+  // Format date helper
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+  
+  // Format frequency helper
+  const formatFrequency = (frequencySeconds: string) => {
+    const days = Math.floor(Number(frequencySeconds) / (24 * 60 * 60))
+    if (days === 7) return 'week'
+    if (days === 30 || days === 31) return 'month'
+    if (days >= 28 && days <= 31) return 'month' // Approximate month
+    return `${days} days`
+  }
+
+  // Load Tandas on mount
+  useEffect(() => {
+    fetchTandas()
+  }, [])
 
   const handleCreateGroup = async (data: {
+    name: string
     participants: string[]
     paymentAmount: string
     paymentFrequency: string
@@ -23,6 +99,26 @@ export default function HomePage() {
     setIsCreating(true)
 
     try {
+      // Get creator's wallet address from localStorage (stored during auth)
+      const creatorAddress = localStorage.getItem('wallet-address')
+      
+      if (!creatorAddress) {
+        alert('Wallet address not found. Please sign in again.')
+        setIsCreating(false)
+        return
+      }
+
+      // Add creator to participants if not already included
+      const participantsWithCreator = [...data.participants]
+      const creatorLower = creatorAddress.toLowerCase()
+      const isCreatorIncluded = participantsWithCreator.some(
+        addr => addr.toLowerCase() === creatorLower
+      )
+      
+      if (!isCreatorIncluded) {
+        participantsWithCreator.push(creatorAddress)
+      }
+
       // Call backend API to create Tanda (backend pays gas)
       console.log('Creating Tanda...')
       const response = await fetch('/api/create-tanda', {
@@ -31,7 +127,8 @@ export default function HomePage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          participants: data.participants,
+          name: data.name,
+          participants: participantsWithCreator,
           paymentAmount: data.paymentAmount,
           paymentFrequency: data.paymentFrequency,
         }),
@@ -46,6 +143,9 @@ export default function HomePage() {
       // Success!
       console.log('Tanda created:', result.tandaAddress)
       console.log('Transaction:', result.transactionHash)
+      
+      // Refresh the Tandas list
+      await fetchTandas()
       
       alert(
         `✅ Tanda created successfully!\n\n` +
@@ -93,27 +193,89 @@ export default function HomePage() {
 
         {/* Table */}
         <div className="flex-1 overflow-y-auto px-4 py-6">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-800">
-                <th className="text-left py-3 px-4 text-white/70 font-semibold text-sm">Group Name</th>
-                <th className="text-left py-3 px-4 text-white/70 font-semibold text-sm">Members</th>
-                <th className="text-right py-3 px-4 text-white/70 font-semibold text-sm">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((group) => (
-                <GroupTableRow
-                  key={group.id}
-                  groupName={group.name}
-                  numberOfPeople={group.numberOfPeople}
-                  onButtonClick={() => {
-                    console.log(`View group: ${group.name}`)
-                  }}
-                />
-              ))}
-            </tbody>
-          </table>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64">
+              <p className="text-white/70">Loading Tandas...</p>
+            </div>
+          ) : tandas.length === 0 ? (
+            <div className="flex items-center justify-center h-64">
+              <p className="text-white/70">No Tandas yet. Create your first one!</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {tandas.map((tanda) => {
+                const onChainData = tandaOnChainData[tanda.tandaAddress]
+                const paymentAmount = (Number(tanda.paymentAmount) / 1e6).toFixed(2)
+                const frequency = formatFrequency(tanda.paymentFrequency)
+                const vaultBalance = onChainData ? (Number(onChainData.vaultBalance) / 1e6).toFixed(2) : '0.00'
+                
+                return (
+                  <div
+                    key={tanda.tandaAddress}
+                    className="bg-gray-900 border border-gray-800 rounded-lg p-6 hover:border-gray-700 transition-colors"
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="text-xl font-bold text-white mb-1">{tanda.name}</h3>
+                        <p className="text-sm text-gray-400 font-mono">
+                          {tanda.tandaAddress.slice(0, 10)}...{tanda.tandaAddress.slice(-8)}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          window.open(`https://worldscan.org/address/${tanda.tandaAddress}`, '_blank')
+                        }}
+                        className="py-2 px-4 bg-[#ff1493] text-white font-semibold text-sm rounded-lg hover:opacity-90 transition-opacity"
+                      >
+                        View Contract
+                      </button>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Payment Info */}
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Payment</p>
+                        <p className="text-lg font-semibold text-white">
+                          ${paymentAmount}/{frequency}
+                        </p>
+                      </div>
+                      
+                      {/* Vault Balance */}
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Vault Balance</p>
+                        <p className="text-lg font-semibold text-green-400">
+                          {vaultBalance} USDC
+                        </p>
+                      </div>
+                      
+                      {/* Next Payment Due */}
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Next Payment Due</p>
+                        <p className="text-sm font-medium text-white">
+                          {onChainData ? formatDate(onChainData.nextPaymentDue) : 'Loading...'}
+                        </p>
+                      </div>
+                      
+                      {/* Claim Date */}
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Can Claim On</p>
+                        <p className="text-sm font-medium text-yellow-400">
+                          {onChainData ? formatDate(onChainData.claimDate) : 'Loading...'}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Members count */}
+                    <div className="mt-4 pt-4 border-t border-gray-800">
+                      <p className="text-sm text-gray-400">
+                        <span className="font-semibold text-white">{tanda.participants.length}</span> members
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 

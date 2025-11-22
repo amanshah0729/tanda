@@ -43,6 +43,9 @@ export default function LandingPage() {
         return
       }
 
+      // Get wallet address from payload
+      const walletAddress = finalPayload.address
+
       // Verify the SIWE message on backend
       const response = await fetch('/api/complete-siwe', {
         method: 'POST',
@@ -60,6 +63,10 @@ export default function LandingPage() {
       if (responseJson.status === 'success' && responseJson.isValid) {
         console.log('Authentication success!')
         localStorage.setItem('world-id-verified', 'true')
+        // Store wallet address for later use
+        if (walletAddress) {
+          localStorage.setItem('wallet-address', walletAddress)
+        }
         setVerifyError(null)
         window.location.href = '/homepage'
       } else {

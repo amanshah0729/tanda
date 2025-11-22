@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createWalletClient, createPublicClient, http, decodeEventLog } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import TandaFactoryABI from "@/abi/TandaFactory.json"
+import { addTanda } from "@/lib/tanda-storage"
 
 // TandaFactory contract address on World Chain
 const FACTORY_ADDRESS = "0x1d8abc392e739eb267667fb5c715e90f35c90233" as `0x${string}`
@@ -10,6 +11,7 @@ const FACTORY_ADDRESS = "0x1d8abc392e739eb267667fb5c715e90f35c90233" as `0x${str
 const WORLD_CHAIN_ID = 480
 
 interface CreateTandaRequest {
+  name: string
   participants: string[]
   paymentAmount: string // Already in wei (6 decimals for USDC)
   paymentFrequency: string // Already in seconds
@@ -48,6 +50,16 @@ export const POST = async (req: NextRequest) => {
     const body = (await req.json()) as CreateTandaRequest
 
     // Validate request body
+    if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid name: must be a non-empty string",
+        },
+        { status: 400 }
+      )
+    }
+
     if (!body.participants || !Array.isArray(body.participants) || body.participants.length === 0) {
       return NextResponse.json(
         {
@@ -192,6 +204,20 @@ export const POST = async (req: NextRequest) => {
       // If event reading fails, use predicted address (should match due to CREATE determinism)
       console.warn("Could not read TandaCreated event, using predicted address:", error)
     }
+
+    // Save Tanda data to JSON file
+    const tandaData = {
+      name: body.name.trim(),
+      tandaAddress,
+      transactionHash: txHash,
+      blockNumber: receipt.blockNumber.toString(),
+      participants: body.participants,
+      paymentAmount: body.paymentAmount,
+      paymentFrequency: body.paymentFrequency,
+      createdAt: new Date().toISOString(),
+    }
+
+    await addTanda(tandaData)
 
     // Return success response
     return NextResponse.json({
