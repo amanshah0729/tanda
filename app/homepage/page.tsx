@@ -1,11 +1,17 @@
 "use client"
 
 import { useState } from "react"
+import { MiniKit } from '@worldcoin/minikit-js'
 import { GroupTableRow } from "@/components/group-table-row"
 import { CreateGroupModal } from "@/components/create-group-modal"
+import TandaFactoryABI from "@/abi/TandaFactory.json"
+
+// TandaFactory contract address on World Chain
+const FACTORY_ADDRESS = "0x1d8abc392e739eb267667fb5c715e90f35c90233"
 
 export default function HomePage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isCreating, setIsCreating] = useState(false)
 
   // Sample data - replace with actual data from your backend
   const groups = [
@@ -14,15 +20,52 @@ export default function HomePage() {
     { id: 3, name: "Emergency Fund", numberOfPeople: 3 },
   ]
 
-  const handleCreateGroup = (data: {
+  const handleCreateGroup = async (data: {
     participants: string[]
     paymentAmount: string
     paymentFrequency: string
   }) => {
-    console.log("Creating group with data:", data)
-    // TODO: Call smart contract to create Tanda
-    // For now, just log the data
-    alert(`Group creation data:\nParticipants: ${data.participants.length}\nPayment: ${data.paymentAmount} (wei)\nFrequency: ${data.paymentFrequency} seconds`)
+    if (!MiniKit.isInstalled()) {
+      alert("World ID MiniKit is not installed. Please install the World App.")
+      return
+    }
+
+    setIsCreating(true)
+
+    try {
+      // Call factory.createTanda via MiniKit
+      const { commandPayload, finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [
+          {
+            address: FACTORY_ADDRESS,
+            abi: TandaFactoryABI,
+            functionName: 'createTanda',
+            args: [
+              data.participants,
+              data.paymentAmount,
+              data.paymentFrequency,
+            ],
+          },
+        ],
+      })
+
+      if (finalPayload.status === 'error') {
+        alert(`Transaction failed: ${finalPayload.error || 'Unknown error'}`)
+        return
+      }
+
+      // Transaction sent successfully
+      console.log('Transaction ID:', finalPayload.transaction_id)
+      alert(`Tanda creation transaction sent!\nTransaction ID: ${finalPayload.transaction_id}\n\nCheck World App for confirmation.`)
+      
+      // Close modal on success
+      setIsModalOpen(false)
+    } catch (error: any) {
+      console.error('Error creating Tanda:', error)
+      alert(`Error creating Tanda: ${error.message || 'Unknown error'}`)
+    } finally {
+      setIsCreating(false)
+    }
   }
 
   return (
@@ -84,6 +127,16 @@ export default function HomePage() {
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleCreateGroup}
       />
+      
+      {/* Loading overlay when creating */}
+      {isCreating && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+            <p className="text-white text-lg">Creating Tanda...</p>
+            <p className="text-gray-400 text-sm mt-2">Please confirm in World App</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

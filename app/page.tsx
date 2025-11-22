@@ -1,63 +1,73 @@
 "use client"
 
 import { useState } from "react"
-import { MiniKit, VerifyCommandInput, VerificationLevel, ISuccessResult } from '@worldcoin/minikit-js'
+import { MiniKit } from '@worldcoin/minikit-js'
 
 export default function LandingPage() {
   const [isVerifying, setIsVerifying] = useState(false)
   const [verifyError, setVerifyError] = useState<string | null>(null)
-  //d
-  const verifyPayload: VerifyCommandInput = {
-    action: 'chat',
-    verification_level: VerificationLevel.Orb,
-  }
   
-  const handleGetStarted = async () => {
+  const signInWithWallet = async () => {
     if (process.env.NEXT_PUBLIC_TESTING === "true") {
-      // Simulate verification in testing mode
+      // Simulate auth in testing mode
       localStorage.setItem('world-id-verified', 'true')
       window.location.href = '/homepage'
       return
     }
+
     if (!MiniKit.isInstalled()) {
       setVerifyError("World ID MiniKit is not installed. Please install the World App.")
       return
     }
-    
+
     setIsVerifying(true)
     setVerifyError(null)
-    
+
     try {
-      const {finalPayload} = await MiniKit.commandsAsync.verify(verifyPayload)
+      // Get nonce from backend
+      const res = await fetch(`/api/nonce`)
+      const { nonce } = await res.json()
+
+      // Call walletAuth command
+      const { commandPayload: generateMessageResult, finalPayload } = await MiniKit.commandsAsync.walletAuth({
+        nonce: nonce,
+        requestId: '0',
+        expirationTime: new Date(new Date().getTime() + 7 * 24 * 60 * 60 * 1000),
+        notBefore: new Date(new Date().getTime() - 24 * 60 * 60 * 1000),
+        statement: 'Sign in to Tanda',
+      })
+
       if (finalPayload.status === 'error') {
-        setVerifyError("Verification was cancelled or failed. Please try again.")
+        setVerifyError("Authentication was cancelled or failed. Please try again.")
         setIsVerifying(false)
         return
       }
-  
-      const verifyResponse = await fetch('/api/verify', {
+
+      // Verify the SIWE message on backend
+      const response = await fetch('/api/complete-siwe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          payload: finalPayload as ISuccessResult,
-          action: 'chat',
+          payload: finalPayload,
+          nonce,
         }),
       })
-  
-      const verifyResponseJson = await verifyResponse.json()
-      if (verifyResponseJson.status === 200) {
-        console.log('Verification success!')
+
+      const responseJson = await response.json()
+      
+      if (responseJson.status === 'success' && responseJson.isValid) {
+        console.log('Authentication success!')
         localStorage.setItem('world-id-verified', 'true')
         setVerifyError(null)
         window.location.href = '/homepage'
       } else {
-        setVerifyError("Verification failed. Please try again.")
+        setVerifyError("Authentication failed. Please try again.")
       }
     } catch (error) {
-      console.error('Verification error:', error)
-      setVerifyError("An error occurred during verification. Please try again.")
+      console.error('Authentication error:', error)
+      setVerifyError("An error occurred during authentication. Please try again.")
     } finally {
       setIsVerifying(false)
     }
@@ -105,14 +115,14 @@ export default function LandingPage() {
         {/* Get Started Button */}
         <div className="absolute bottom-8 left-0 right-0 px-4 z-10">
           <button
-            onClick={handleGetStarted}
+            onClick={signInWithWallet}
             disabled={isVerifying}
             className="w-full py-4 px-8 bg-[#ff1493] text-white font-bold text-xl rounded-lg shadow-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               boxShadow: '0 0 30px #ff1493, 0 0 60px #ff1493, inset 0 0 20px rgba(255, 20, 147, 0.3)',
             }}
           >
-            {isVerifying ? "Verifying..." : "Get Started"}
+            {isVerifying ? "Signing in..." : "Get Started"}
           </button>
         </div>
       </div>
