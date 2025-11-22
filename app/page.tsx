@@ -1,0 +1,115 @@
+"use client"
+
+import { useState } from "react"
+import { MiniKit, VerifyCommandInput, VerificationLevel, ISuccessResult } from '@worldcoin/minikit-js'
+
+export default function LandingPage() {
+  const [isVerifying, setIsVerifying] = useState(false)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
+
+  const verifyPayload: VerifyCommandInput = {
+    action: 'chat',
+    verification_level: VerificationLevel.Orb,
+  }
+  
+  const handleGetStarted = async () => {
+    if (!MiniKit.isInstalled()) {
+      setVerifyError("World ID MiniKit is not installed. Please install the World App.")
+      return
+    }
+    
+    setIsVerifying(true)
+    setVerifyError(null)
+    
+    try {
+      const {finalPayload} = await MiniKit.commandsAsync.verify(verifyPayload)
+      if (finalPayload.status === 'error') {
+        setVerifyError("Verification was cancelled or failed. Please try again.")
+        setIsVerifying(false)
+        return
+      }
+  
+      const verifyResponse = await fetch('/api/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          payload: finalPayload as ISuccessResult,
+          action: 'chat',
+        }),
+      })
+  
+      const verifyResponseJson = await verifyResponse.json()
+      if (verifyResponseJson.status === 200) {
+        console.log('Verification success!')
+        localStorage.setItem('world-id-verified', 'true')
+        // Verification successful - you can add navigation or state change here
+        setVerifyError(null)
+      } else {
+        setVerifyError("Verification failed. Please try again.")
+      }
+    } catch (error) {
+      console.error('Verification error:', error)
+      setVerifyError("An error occurred during verification. Please try again.")
+    } finally {
+      setIsVerifying(false)
+    }
+  }
+
+  const words = ['SUSU', 'ROSCA', 'TONDA', 'CHIT', 'ESUSU', 'AYUDA', 'PANDEROS']
+
+  return (
+    <div className="fixed inset-0 bg-black overflow-hidden">
+      <div className="relative w-full h-full flex flex-col items-center px-4 pt-12 md:pt-16">
+        {/* Main Tanda Title - At Top */}
+        <div className="relative z-10 text-center mb-8 md:mb-12">
+          <h1 
+            className="text-6xl md:text-8xl font-black text-[#ff1493]"
+            style={{
+              textShadow: '0 0 15px #ff1493, 0 0 30px #ff1493',
+            }}
+          >
+            TANDA
+          </h1>
+        </div>
+
+        {/* Animated Words Below TANDA */}
+        <div className="flex flex-col items-center gap-3 md:gap-4 mt-4">
+          {words.map((word, index) => (
+            <div
+              key={word}
+              className="word-animate text-white font-bold text-xl md:text-2xl opacity-40"
+              style={{
+                animationDelay: `${0.3 + index * 0.15}s`,
+              }}
+            >
+              {word}
+            </div>
+          ))}
+        </div>
+
+        {/* Error Message */}
+        {verifyError && (
+          <div className="absolute top-20 left-1/2 -translate-x-1/2 px-4 py-2 bg-red-900/80 text-red-200 rounded-lg text-sm max-w-xs text-center z-20">
+            {verifyError}
+          </div>
+        )}
+
+        {/* Get Started Button */}
+        <div className="absolute bottom-8 left-0 right-0 px-4 z-10">
+          <button
+            onClick={handleGetStarted}
+            disabled={isVerifying}
+            className="w-full py-4 px-8 bg-[#ff1493] text-white font-bold text-xl rounded-lg shadow-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              boxShadow: '0 0 30px #ff1493, 0 0 60px #ff1493, inset 0 0 20px rgba(255, 20, 147, 0.3)',
+            }}
+          >
+            {isVerifying ? "Verifying..." : "Get Started"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
