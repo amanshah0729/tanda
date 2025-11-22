@@ -1,13 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { MiniKit } from '@worldcoin/minikit-js'
 import { GroupTableRow } from "@/components/group-table-row"
 import { CreateGroupModal } from "@/components/create-group-modal"
-import TandaFactoryABI from "@/abi/TandaFactory.json"
-
-// TandaFactory contract address on World Chain
-const FACTORY_ADDRESS = "0x1d8abc392e739eb267667fb5c715e90f35c90233"
 
 export default function HomePage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -25,38 +20,39 @@ export default function HomePage() {
     paymentAmount: string
     paymentFrequency: string
   }) => {
-    if (!MiniKit.isInstalled()) {
-      alert("World ID MiniKit is not installed. Please install the World App.")
-      return
-    }
-
     setIsCreating(true)
 
     try {
-      // Call factory.createTanda via MiniKit
-      const { commandPayload, finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [
-          {
-            address: FACTORY_ADDRESS,
-            abi: TandaFactoryABI,
-            functionName: 'createTanda',
-            args: [
-              data.participants,
-              data.paymentAmount,
-              data.paymentFrequency,
-            ],
-          },
-        ],
+      // Call backend API to create Tanda (backend pays gas)
+      console.log('Creating Tanda...')
+      const response = await fetch('/api/create-tanda', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          participants: data.participants,
+          paymentAmount: data.paymentAmount,
+          paymentFrequency: data.paymentFrequency,
+        }),
       })
 
-      if (finalPayload.status === 'error') {
-        alert(`Transaction failed: ${finalPayload.error || 'Unknown error'}`)
-        return
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to create Tanda')
       }
 
-      // Transaction sent successfully
-      console.log('Transaction ID:', finalPayload.transaction_id)
-      alert(`Tanda creation transaction sent!\nTransaction ID: ${finalPayload.transaction_id}\n\nCheck World App for confirmation.`)
+      // Success!
+      console.log('Tanda created:', result.tandaAddress)
+      console.log('Transaction:', result.transactionHash)
+      
+      alert(
+        `✅ Tanda created successfully!\n\n` +
+        `Contract Address: ${result.tandaAddress}\n` +
+        `Transaction: ${result.transactionHash}\n\n` +
+        `View on Worldscan: https://worldscan.org/tx/${result.transactionHash}`
+      )
       
       // Close modal on success
       setIsModalOpen(false)
@@ -133,7 +129,7 @@ export default function HomePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
             <p className="text-white text-lg">Creating Tanda...</p>
-            <p className="text-gray-400 text-sm mt-2">Please confirm in World App</p>
+            <p className="text-gray-400 text-sm mt-2">Deploying contract on World Chain...</p>
           </div>
         </div>
       )}

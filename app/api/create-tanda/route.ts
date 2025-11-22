@@ -1,0 +1,216 @@
+import { NextRequest, NextResponse } from "next/server"
+import { createWalletClient, createPublicClient, http, decodeEventLog } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import TandaFactoryABI from "@/abi/TandaFactory.json"
+
+// TandaFactory contract address on World Chain
+const FACTORY_ADDRESS = "0x1d8abc392e739eb267667fb5c715e90f35c90233" as `0x${string}`
+
+// World Chain configuration
+const WORLD_CHAIN_ID = 480
+
+interface CreateTandaRequest {
+  participants: string[]
+  paymentAmount: string // Already in wei (6 decimals for USDC)
+  paymentFrequency: string // Already in seconds
+}
+
+export const POST = async (req: NextRequest) => {
+  console.log("backend tanda event creation started...")
+  try {
+    
+    // Validate environment variables
+    const privateKey = process.env.WLD_PRIVATE_KEY
+    const rpcUrl = process.env.WLD_RPC_URL
+
+    if (!privateKey || !rpcUrl) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Server configuration error: Missing WLD_PRIVATE_KEY or WLD_RPC_URL",
+        },
+        { status: 500 }
+      )
+    }
+
+    // Validate private key format
+    if (!privateKey.startsWith("0x")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid private key format",
+        },
+        { status: 500 }
+      )
+    }
+
+    // Parse request body
+    const body = (await req.json()) as CreateTandaRequest
+
+    // Validate request body
+    if (!body.participants || !Array.isArray(body.participants) || body.participants.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid participants: must be a non-empty array",
+        },
+        { status: 400 }
+      )
+    }
+
+    if (!body.paymentAmount || !body.paymentFrequency) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Missing paymentAmount or paymentFrequency",
+        },
+        { status: 400 }
+      )
+    }
+
+    // Validate addresses
+    const addressRegex = /^0x[a-fA-F0-9]{40}$/
+    for (const participant of body.participants) {
+      if (!addressRegex.test(participant)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Invalid participant address: ${participant}`,
+          },
+          { status: 400 }
+        )
+      }
+    }
+
+    // Create account from private key
+    const account = privateKeyToAccount(privateKey as `0x${string}`)
+
+    // Create clients
+    const publicClient = createPublicClient({
+      chain: {
+        id: WORLD_CHAIN_ID,
+        name: "World Chain",
+        network: "worldchain",
+        nativeCurrency: {
+          name: "Ether",
+          symbol: "ETH",
+          decimals: 18,
+        },
+        rpcUrls: {
+          default: {
+            http: [rpcUrl],
+          },
+        },
+      },
+      transport: http(rpcUrl),
+    })
+
+    const walletClient = createWalletClient({
+      account,
+      chain: {
+        id: WORLD_CHAIN_ID,
+        name: "World Chain",
+        network: "worldchain",
+        nativeCurrency: {
+          name: "Ether",
+          symbol: "ETH",
+          decimals: 18,
+        },
+        rpcUrls: {
+          default: {
+            http: [rpcUrl],
+          },
+        },
+      },
+      transport: http(rpcUrl),
+    })
+
+    // Convert strings to BigInt
+    const paymentAmount = BigInt(body.paymentAmount)
+    const paymentFrequency = BigInt(body.paymentFrequency)
+
+    // Simulate transaction to get predicted Tanda address
+    const simulateResult = await publicClient.simulateContract({
+      address: FACTORY_ADDRESS,
+      abi: TandaFactoryABI,
+      functionName: "createTanda",
+      args: [body.participants, paymentAmount, paymentFrequency],
+      account: account.address,
+    })
+
+    const predictedTandaAddress = simulateResult.result as `0x${string}`
+
+    // Execute the transaction
+    const txHash = await walletClient.writeContract({
+      address: FACTORY_ADDRESS,
+      abi: TandaFactoryABI,
+      functionName: "createTanda",
+      args: [body.participants, paymentAmount, paymentFrequency],
+    })
+
+    // Wait for transaction receipt
+    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
+
+    if (receipt.status !== "success") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Transaction failed",
+          transactionHash: txHash,
+        },
+        { status: 500 }
+      )
+    }
+
+    // Try to get Tanda address from event
+    let tandaAddress: `0x${string}` = predictedTandaAddress
+
+    try {
+      // Find TandaCreated event in receipt logs
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== FACTORY_ADDRESS.toLowerCase()) {
+          continue
+        }
+        
+        try {
+          const decoded = decodeEventLog({
+            abi: TandaFactoryABI,
+            data: log.data,
+            topics: log.topics,
+          })
+          
+          if (decoded.eventName === "TandaCreated") {
+            tandaAddress = (decoded.args as any).tandaAddress as `0x${string}`
+            break
+          }
+        } catch {
+          // Not our event, continue
+          continue
+        }
+      }
+    } catch (error) {
+      // If event reading fails, use predicted address (should match due to CREATE determinism)
+      console.warn("Could not read TandaCreated event, using predicted address:", error)
+    }
+
+    // Return success response
+    return NextResponse.json({
+      success: true,
+      tandaAddress,
+      transactionHash: txHash,
+      blockNumber: receipt.blockNumber.toString(),
+    })
+  } catch (error: any) {
+    console.error("Error creating Tanda:", error)
+
+    // Return user-friendly error message
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || "Failed to create Tanda contract",
+      },
+      { status: 500 }
+    )
+  }
+}
+
