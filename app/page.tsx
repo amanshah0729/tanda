@@ -46,6 +46,20 @@ export default function LandingPage() {
       // Get wallet address from payload
       const walletAddress = finalPayload.address
 
+      // Get username from MiniKit and store it
+      try {
+        if (MiniKit.user?.username) {
+          localStorage.setItem('username', MiniKit.user.username)
+        } else if (walletAddress) {
+          const userInfo = await MiniKit.getUserByAddress(walletAddress)
+          if (userInfo?.username) {
+            localStorage.setItem('username', userInfo.username)
+          }
+        }
+      } catch (error) {
+        console.log('Could not fetch username:', error)
+      }
+
       // Verify the SIWE message on backend
       const response = await fetch('/api/complete-siwe', {
         method: 'POST',

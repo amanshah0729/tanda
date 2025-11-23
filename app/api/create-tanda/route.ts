@@ -15,6 +15,9 @@ interface CreateTandaRequest {
   participants: string[]
   paymentAmount: string // Already in wei (6 decimals for USDC)
   paymentFrequency: string // Already in seconds
+  isPublic?: boolean // Optional, defaults to true
+  creditRequirement?: string // Optional, defaults to "0"
+  creatorAddress: string // Address of the user creating the tanda
 }
 
 export const POST = async (req: NextRequest) => {
@@ -49,6 +52,9 @@ export const POST = async (req: NextRequest) => {
     // Parse request body
     const body = (await req.json()) as CreateTandaRequest
 
+    // Validate addresses regex
+    const addressRegex = /^0x[a-fA-F0-9]{40}$/
+
     // Validate request body
     if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
       return NextResponse.json(
@@ -80,8 +86,17 @@ export const POST = async (req: NextRequest) => {
       )
     }
 
+    if (!body.creatorAddress || !addressRegex.test(body.creatorAddress)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid or missing creatorAddress",
+        },
+        { status: 400 }
+      )
+    }
+
     // Validate addresses
-    const addressRegex = /^0x[a-fA-F0-9]{40}$/
     for (const participant of body.participants) {
       if (!addressRegex.test(participant)) {
         return NextResponse.json(
@@ -215,9 +230,11 @@ export const POST = async (req: NextRequest) => {
       paymentAmount: body.paymentAmount,
       paymentFrequency: body.paymentFrequency,
       createdAt: new Date().toISOString(),
+      isPublic: body.isPublic ?? true,
+      creditRequirement: body.creditRequirement || "0",
     }
 
-    await addTanda(tandaData)
+    await addTanda(tandaData, body.creatorAddress)
 
     // Return success response
     return NextResponse.json({

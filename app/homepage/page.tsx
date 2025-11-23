@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { MiniKit } from '@worldcoin/minikit-js'
 import { CreateGroupModal } from "@/components/create-group-modal"
 import TandaArtifact from "@/abi/Tanda.json"
@@ -22,6 +23,8 @@ interface TandaData {
   paymentAmount: string
   paymentFrequency: string
   createdAt: string
+  isPublic?: boolean
+  creditRequirement?: string
 }
 
 interface TandaOnChainData {
@@ -32,17 +35,27 @@ interface TandaOnChainData {
 }
 
 export default function HomePage() {
+  const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [tandas, setTandas] = useState<TandaData[]>([])
   const [tandaOnChainData, setTandaOnChainData] = useState<Record<string, TandaOnChainData>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [payingTanda, setPayingTanda] = useState<string | null>(null)
+  const [username, setUsername] = useState<string>("")
 
-  // Fetch Tandas from API
+  // Fetch Tandas from API (filtered by user)
   const fetchTandas = async () => {
     try {
-      const response = await fetch('/api/tandas')
+      // Get user's wallet address
+      const userAddress = localStorage.getItem('wallet-address')
+      
+      // Fetch tandas for this specific user
+      const url = userAddress 
+        ? `/api/tandas?userAddress=${userAddress}`
+        : '/api/tandas'
+      
+      const response = await fetch(url)
       const result = await response.json()
       if (result.success) {
         const tandasList = result.tandas || []
@@ -104,8 +117,20 @@ export default function HomePage() {
     return `${days} days`
   }
 
-  // Load Tandas on mount
+  // Load username and tandas on mount
   useEffect(() => {
+    // First try to get username from localStorage (set during auth)
+    const storedUsername = localStorage.getItem('username')
+    if (storedUsername) {
+      setUsername(storedUsername)
+    } else {
+      // Fallback to shortened address if no username found
+      const userAddress = localStorage.getItem('wallet-address')
+      if (userAddress) {
+        setUsername(`${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`)
+      }
+    }
+    
     fetchTandas()
   }, [])
 
@@ -114,6 +139,8 @@ export default function HomePage() {
     participants: string[]
     paymentAmount: string
     paymentFrequency: string
+    isPublic: boolean
+    creditRequirement: string
   }) => {
     setIsCreating(true)
 
@@ -127,15 +154,11 @@ export default function HomePage() {
         return
       }
 
-      // Add creator to participants if not already included
-      const participantsWithCreator = [...data.participants]
-      const creatorLower = creatorAddress.toLowerCase()
-      const isCreatorIncluded = participantsWithCreator.some(
-        addr => addr.toLowerCase() === creatorLower
-      )
-      
-      if (!isCreatorIncluded) {
-        participantsWithCreator.push(creatorAddress)
+      // Validate that at least one participant is provided
+      if (!data.participants || data.participants.length === 0) {
+        alert('Please add at least one participant (including yourself if you want to join).')
+        setIsCreating(false)
+        return
       }
 
       // Call backend API to create Tanda (backend pays gas)
@@ -147,9 +170,12 @@ export default function HomePage() {
         },
         body: JSON.stringify({
           name: data.name,
-          participants: participantsWithCreator,
+          participants: data.participants,
           paymentAmount: data.paymentAmount,
           paymentFrequency: data.paymentFrequency,
+          isPublic: data.isPublic,
+          creditRequirement: data.creditRequirement,
+          creatorAddress: creatorAddress,
         }),
       })
 
@@ -219,8 +245,7 @@ export default function HomePage() {
       
       // Capture timestamp once to ensure consistency between nonce and deadline
       const now = Date.now()
-      const nonce = String(now)
-      const deadline = String(Math.floor((now + 60 * 1000) / 1000)) // 1 minute for dev
+
       
       // Permit2 permit data - values must match exactly between permit2 array and args
       const permitTransfer = {
@@ -228,8 +253,8 @@ export default function HomePage() {
           token: USDC_ADDRESS,
           amount: paymentAmount,
         },
-        nonce: nonce,
-        deadline: deadline,
+        nonce: Date.now().toString(),
+        deadline: Math.floor((Date.now() + 30 * 60 * 1000) / 1000).toString(),
       }
 
       const transferDetails = {
@@ -239,11 +264,11 @@ export default function HomePage() {
 
       // Call Permit2 signatureTransfer + Tanda payAfterPermit2
       // Using nested array format that matches Permit2 ABI structure exactly
-      const { commandPayload, finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
         transaction: [
           {
             // First transaction: Permit2 signatureTransfer (transfers USDC)
-            address: PERMIT2_ADDRESS,
+            address: '0xF0882554ee924278806d708396F1a7975b732522',
             abi: Permit2ABI as any,
             functionName: 'signatureTransfer',
             args: [
@@ -265,13 +290,7 @@ export default function HomePage() {
               'PERMIT2_SIGNATURE_PLACEHOLDER_0', // Placeholder will be replaced with correct signature
             ],
           },
-          {
-            // Second transaction: Tanda payAfterPermit2 (marks as paid)
-            address: tandaAddress as `0x${string}`,
-            abi: TandaABI as any,
-            functionName: 'payAfterPermit2',
-            args: [userAddress as `0x${string}`],
-          },
+
         ],
         permit2: [
           {
@@ -279,7 +298,7 @@ export default function HomePage() {
             spender: tandaAddress as `0x${string}`,
           },
         ],
-        formatPayload: true, // Re-enable formatting - let MiniKit handle proper encoding
+        formatPayload: false, // Re-enable formatting - let MiniKit handle proper encoding
       })
 
       if (finalPayload.status === 'error') {
@@ -310,22 +329,31 @@ export default function HomePage() {
         {/* Header */}
         <header className="w-full border-b border-gray-800 px-4 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl md:text-3xl font-bold text-white">Dashboard</h1>
-            <div className="flex gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold text-white">
+              {username || "Dashboard"}
+            </h1>
+            <div className="flex gap-2">
               <button
                 onClick={() => setIsModalOpen(true)}
-                className="py-2 px-4 bg-[#ff1493] text-white font-semibold text-sm rounded-lg hover:opacity-90 transition-opacity"
+                className="p-2 bg-[#ff1493] text-white rounded-lg hover:opacity-90 transition-opacity"
+                title="Start Group"
               >
-                Start Group
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
               </button>
               <button
-                onClick={() => {
-                  // Handle Join Group
-                  console.log('Join Group clicked')
-                }}
-                className="py-2 px-4 bg-[#ff1493] text-white font-semibold text-sm rounded-lg hover:opacity-90 transition-opacity"
+                onClick={() => router.push('/join')}
+                className="p-2 bg-[#ff1493] text-white rounded-lg hover:opacity-90 transition-opacity"
+                title="Join Group"
               >
-                Join Group
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="9" cy="7" r="4"></circle>
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                </svg>
               </button>
             </div>
           </div>

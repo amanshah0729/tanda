@@ -1,42 +1,36 @@
-[
-  {
-    "name": "Family",
-    "tandaAddress": "0x26a0B02817A6FAf57Be621B956077a37489bfaEe",
-    "transactionHash": "0x1e13e5f2667c32ce17eca91439d83e3c881c9fe81d628647cd7fe6df06a8cf0b",
-    "blockNumber": "22251390",
-    "participants": [
-      "0x117F95E512Dc2FA708A559a7182Ba60c6037a92E"
-    ],
-    "paymentAmount": "10000",
-    "paymentFrequency": "2592000",
-    "createdAt": "2025-11-22T19:07:02.442Z"
-  },
-  {
-    "name": "bunnies",
-    "tandaAddress": "0xa159fec96B4Ba48fB98f51237f4bC73Fa397Dc66",
-    "transactionHash": "0xd95131b9aafa0def9e879dffd5416c4f52b93364ce61e3be2fa8dcc662503426",
-    "blockNumber": "22253324",
-    "participants": [
-      "0x83145c8de2ec7f16876eeef954e12f56c6f0e5d1",
-      "0x83145c8de2ec7f16876eeef954e12f56c6f0e5d0",
-      "0xa1acbcc036a4d1786b58cf9c270c9726b0f51c2e"
-    ],
-    "paymentAmount": "20000",
-    "paymentFrequency": "86400",
-    "createdAt": "2025-11-22T20:11:30.367Z"
-  },
-  {
-    "name": "thinnk",
-    "tandaAddress": "0x54eB77C11E082D5d4993555866A2D471479bDc6c",
-    "transactionHash": "0xdcdadc5f16dc4d90c4962e9273a05a48ccdcf27cebbbd1a98d95fd99b5658591",
-    "blockNumber": "22253483",
-    "participants": [
-      "0x83145c8de2ec7f16876eeef954e12f56c6f0e5d1",
-      "0x83145c8de2ec7f16876eeef954e12f56c6f0e5d6",
-      "0xa1acbcc036a4d1786b58cf9c270c9726b0f51c2e"
-    ],
-    "paymentAmount": "30000",
-    "paymentFrequency": "86400",
-    "createdAt": "2025-11-22T20:16:49.238Z"
-  }
-]
+{
+  "0x117f95e512dc2fa708a559a7182ba60c6037a92e": [
+    {
+      "name": "test",
+      "tandaAddress": "0xf215d07CEE11C9526192a4e83948fBD8922D4B73",
+      "transactionHash": "0x508edaaf74716ef412f9c37b1cf9e44e1f16a08fe595f52e7ff50828df97d495",
+      "blockNumber": "22261015",
+      "participants": [
+        "0x117F95E512Dc2FA708A559a7182Ba60c6037a92E",
+        "0xa1acbcc036a4d1786b58cf9c270c9726b0f51c2e"
+      ],
+      "paymentAmount": "10000",
+      "paymentFrequency": "86400",
+      "createdAt": "2025-11-23T00:27:52.415Z",
+      "isPublic": true,
+      "creditRequirement": "1"
+    }
+  ],
+  "0xa1acbcc036a4d1786b58cf9c270c9726b0f51c2e": [
+    {
+      "name": "test",
+      "tandaAddress": "0xf215d07CEE11C9526192a4e83948fBD8922D4B73",
+      "transactionHash": "0x508edaaf74716ef412f9c37b1cf9e44e1f16a08fe595f52e7ff50828df97d495",
+      "blockNumber": "22261015",
+      "participants": [
+        "0x117F95E512Dc2FA708A559a7182Ba60c6037a92E",
+        "0xa1acbcc036a4d1786b58cf9c270c9726b0f51c2e"
+      ],
+      "paymentAmount": "10000",
+      "paymentFrequency": "86400",
+      "createdAt": "2025-11-23T00:27:52.415Z",
+      "isPublic": true,
+      "creditRequirement": "1"
+    }
+  ]
+}
