@@ -3,6 +3,7 @@ import path from 'path'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const TANDAS_FILE = path.join(DATA_DIR, 'tandas.json')
+const USERS_FILE = path.join(DATA_DIR, 'users.json')
 
 export interface TandaData {
   name: string
@@ -18,10 +19,17 @@ export interface TandaData {
   averageCredit?: string // Average credit score of all participants
 }
 
-// Structure: { "userAddress": [TandaData[]] }
-// Each user has access to all tandas where they are a participant
-interface TandasByUser {
-  [userAddress: string]: TandaData[]
+// Structure for tandas.json: { "tandaAddress": { tanda data without tandaAddress } }
+interface TandasData {
+  [tandaAddress: string]: Omit<TandaData, 'tandaAddress'>
+}
+
+// Structure for users.json: { "users": [{ userAddress: string, tandas: string[] }] }
+interface UsersData {
+  users: Array<{
+    userAddress: string
+    tandas: string[]
+  }>
 }
 
 // Ensure data directory exists
@@ -33,52 +41,19 @@ async function ensureDataDir() {
   }
 }
 
-// Read all Tandas organized by participant from JSON file
-async function getTandasByUser(): Promise<TandasByUser> {
+// Read tandas.json
+async function getTandasData(): Promise<TandasData> {
   try {
     await ensureDataDir()
     const fileContent = await fs.readFile(TANDAS_FILE, 'utf-8')
-    
-    // Handle empty file or whitespace-only content
     const trimmedContent = fileContent.trim()
     if (!trimmedContent) {
       return {}
     }
-    
     const parsed = JSON.parse(trimmedContent)
-    
-    // Handle migration: if it's an array (old format), convert to new format
-    if (Array.isArray(parsed)) {
-      // Migrate old format - organize by all participants, not just creator
-      const newFormat: TandasByUser = {}
-      for (const tanda of parsed) {
-        // Add tanda to each participant's list
-        if (tanda.participants && Array.isArray(tanda.participants)) {
-          for (const participant of tanda.participants) {
-            const participantKey = participant.toLowerCase()
-            if (!newFormat[participantKey]) {
-              newFormat[participantKey] = []
-            }
-            // Check if tanda already exists for this participant (avoid duplicates)
-            const exists = newFormat[participantKey].some(
-              t => t.tandaAddress.toLowerCase() === tanda.tandaAddress.toLowerCase()
-            )
-            if (!exists) {
-              newFormat[participantKey].push(tanda)
-            }
-          }
-        }
-      }
-      // Save migrated format
-      await fs.writeFile(TANDAS_FILE, JSON.stringify(newFormat, null, 2), 'utf-8')
-      return newFormat
-    }
-    
     return parsed || {}
   } catch (error: any) {
-    // File doesn't exist yet or is invalid, return empty object
     if (error.code === 'ENOENT' || error instanceof SyntaxError) {
-      // If file is invalid JSON, reset it to empty object
       if (error instanceof SyntaxError) {
         await fs.writeFile(TANDAS_FILE, '{}', 'utf-8')
       }
@@ -88,76 +63,159 @@ async function getTandasByUser(): Promise<TandasByUser> {
   }
 }
 
-// Read all Tandas from all users (flattened)
-export async function getAllTandas(): Promise<TandaData[]> {
-  const tandasByUser = await getTandasByUser()
-  // Flatten all tandas from all users
-  const allTandas: TandaData[] = []
-  for (const userAddress in tandasByUser) {
-    allTandas.push(...tandasByUser[userAddress])
+// Read users.json
+async function getUsersData(): Promise<UsersData> {
+  try {
+    await ensureDataDir()
+    const fileContent = await fs.readFile(USERS_FILE, 'utf-8')
+    const trimmedContent = fileContent.trim()
+    if (!trimmedContent) {
+      return { users: [] }
+    }
+    const parsed = JSON.parse(trimmedContent)
+    return parsed || { users: [] }
+  } catch (error: any) {
+    if (error.code === 'ENOENT' || error instanceof SyntaxError) {
+      if (error instanceof SyntaxError) {
+        await fs.writeFile(USERS_FILE, JSON.stringify({ users: [] }, null, 2), 'utf-8')
+      }
+      return { users: [] }
+    }
+    throw error
   }
+}
+
+// Get all tandas as TandaData[] (with tandaAddress included)
+export async function getAllTandas(): Promise<TandaData[]> {
+  const tandasData = await getTandasData()
+  const allTandas: TandaData[] = []
+  
+  for (const tandaAddress in tandasData) {
+    allTandas.push({
+      ...tandasData[tandaAddress],
+      tandaAddress,
+    })
+  }
+  
   return allTandas
 }
 
 // Get tandas for a specific user
 export async function getTandasByUserAddress(userAddress: string): Promise<TandaData[]> {
-  const tandasByUser = await getTandasByUser()
-  return tandasByUser[userAddress.toLowerCase()] || []
+  const usersData = await getUsersData()
+  const tandasData = await getTandasData()
+  const userAddressLower = userAddress.toLowerCase()
+  
+  // Find user
+  const user = usersData.users.find(
+    u => u.userAddress.toLowerCase() === userAddressLower
+  )
+  
+  if (!user) {
+    return []
+  }
+  
+  // Get tanda data for each tanda address
+  const tandas: TandaData[] = []
+  for (const tandaAddress of user.tandas) {
+    const tandaData = tandasData[tandaAddress.toLowerCase()]
+    if (tandaData) {
+      tandas.push({
+        ...tandaData,
+        tandaAddress,
+      })
+    }
+  }
+  
+  return tandas
 }
 
-// Add a new Tanda to the JSON file - add it to ALL participants' lists
+// Add a new Tanda - saves to tandas.json and updates users.json
 export async function addTanda(tanda: TandaData, creatorAddress: string): Promise<void> {
   await ensureDataDir()
-  const tandasByUser = await getTandasByUser()
+  const tandasData = await getTandasData()
+  const usersData = await getUsersData()
   
-  // Add tanda to each participant's list
-  if (tanda.participants && Array.isArray(tanda.participants)) {
-    for (const participant of tanda.participants) {
-      const participantKey = participant.toLowerCase()
-      if (!tandasByUser[participantKey]) {
-        tandasByUser[participantKey] = []
-      }
-      // Check if tanda already exists (avoid duplicates)
-      const exists = tandasByUser[participantKey].some(
-        t => t.tandaAddress.toLowerCase() === tanda.tandaAddress.toLowerCase()
-      )
-      if (!exists) {
-        tandasByUser[participantKey].push(tanda)
-      }
+  const tandaAddressLower = tanda.tandaAddress.toLowerCase()
+  
+  // Save tanda data to tandas.json (without tandaAddress field)
+  const { tandaAddress, ...tandaDataWithoutAddress } = tanda
+  tandasData[tandaAddressLower] = tandaDataWithoutAddress
+  await fs.writeFile(TANDAS_FILE, JSON.stringify(tandasData, null, 2), 'utf-8')
+  
+  // Update users.json - add tanda address to creator
+  const creatorLower = creatorAddress.toLowerCase()
+  let creatorUser = usersData.users.find(
+    u => u.userAddress.toLowerCase() === creatorLower
+  )
+  
+  if (!creatorUser) {
+    // Create new user entry for creator
+    creatorUser = {
+      userAddress: creatorAddress,
+      tandas: [],
     }
+    usersData.users.push(creatorUser)
   }
   
-  await fs.writeFile(TANDAS_FILE, JSON.stringify(tandasByUser, null, 2), 'utf-8')
-}
-
-// Get a specific Tanda by address (searches across all users)
-export async function getTandaByAddress(address: string): Promise<TandaData | null> {
-  const tandasByUser = await getTandasByUser()
+  // Add tanda address to creator's tandas if not already present
+  if (!creatorUser.tandas.some(addr => addr.toLowerCase() === tandaAddressLower)) {
+    creatorUser.tandas.push(tanda.tandaAddress)
+  }
   
-  // Search through all users
-  for (const userAddress in tandasByUser) {
-    const tanda = tandasByUser[userAddress].find(
-      t => t.tandaAddress.toLowerCase() === address.toLowerCase()
+  // For each participant, ensure they exist in users.json and add tanda to their list
+  for (const participant of tanda.participants) {
+    const participantLower = participant.toLowerCase()
+    let participantUser = usersData.users.find(
+      u => u.userAddress.toLowerCase() === participantLower
     )
-    if (tanda) {
-      return tanda
+    
+    if (!participantUser) {
+      // Create new user entry for participant
+      participantUser = {
+        userAddress: participant,
+        tandas: [],
+      }
+      usersData.users.push(participantUser)
+    }
+    
+    // Add tanda address to participant's tandas if not already present
+    if (!participantUser.tandas.some(addr => addr.toLowerCase() === tandaAddressLower)) {
+      participantUser.tandas.push(tanda.tandaAddress)
     }
   }
   
-  return null
+  await fs.writeFile(USERS_FILE, JSON.stringify(usersData, null, 2), 'utf-8')
 }
 
-// Get all public tandas (iterates through all users)
+// Get a specific Tanda by address
+export async function getTandaByAddress(address: string): Promise<TandaData | null> {
+  const tandasData = await getTandasData()
+  const tandaData = tandasData[address.toLowerCase()]
+  
+  if (!tandaData) {
+    return null
+  }
+  
+  return {
+    ...tandaData,
+    tandaAddress: address,
+  }
+}
+
+// Get all public tandas
 export async function getPublicTandas(): Promise<TandaData[]> {
-  const tandasByUser = await getTandasByUser()
+  const tandasData = await getTandasData()
   const publicTandas: TandaData[] = []
   
-  // Iterate through all users
-  for (const userAddress in tandasByUser) {
-    const userTandas = tandasByUser[userAddress]
-    // Filter for public tandas
-    const publicUserTandas = userTandas.filter(t => t.isPublic !== false)
-    publicTandas.push(...publicUserTandas)
+  for (const tandaAddress in tandasData) {
+    const tandaData = tandasData[tandaAddress]
+    if (tandaData.isPublic !== false) {
+      publicTandas.push({
+        ...tandaData,
+        tandaAddress,
+      })
+    }
   }
   
   return publicTandas
@@ -166,31 +224,21 @@ export async function getPublicTandas(): Promise<TandaData[]> {
 // Add a participant to a tanda - updates the tanda and adds it to the new participant's list
 export async function addParticipantToTanda(tandaAddress: string, participantAddress: string): Promise<void> {
   await ensureDataDir()
-  const tandasByUser = await getTandasByUser()
-  const participantKey = participantAddress.toLowerCase()
+  const tandasData = await getTandasData()
+  const usersData = await getUsersData()
   
-  // Find the tanda in any user's list (they all reference the same tanda)
-  let foundTanda: TandaData | null = null
-  let foundUserKey: string | null = null
+  const tandaAddressLower = tandaAddress.toLowerCase()
+  const tandaData = tandasData[tandaAddressLower]
   
-  for (const userAddress in tandasByUser) {
-    const tanda = tandasByUser[userAddress].find(
-      t => t.tandaAddress.toLowerCase() === tandaAddress.toLowerCase()
-    )
-    if (tanda) {
-      foundTanda = tanda
-      foundUserKey = userAddress
-      break
-    }
-  }
-  
-  if (!foundTanda) {
+  if (!tandaData) {
     throw new Error("Tanda not found")
   }
   
+  const participantLower = participantAddress.toLowerCase()
+  
   // Check if participant already exists in the tanda
-  const isAlreadyParticipant = foundTanda.participants.some(
-    addr => addr.toLowerCase() === participantKey
+  const isAlreadyParticipant = tandaData.participants.some(
+    addr => addr.toLowerCase() === participantLower
   )
   
   if (isAlreadyParticipant) {
@@ -198,48 +246,42 @@ export async function addParticipantToTanda(tandaAddress: string, participantAdd
   }
   
   // Add participant to the tanda's participants list
-  foundTanda.participants.push(participantAddress)
+  tandaData.participants.push(participantAddress)
+  tandasData[tandaAddressLower] = tandaData
+  await fs.writeFile(TANDAS_FILE, JSON.stringify(tandasData, null, 2), 'utf-8')
   
-  // Update the tanda in ALL users' lists who already have it
-  for (const userAddress in tandasByUser) {
-    const tandaIndex = tandasByUser[userAddress].findIndex(
-      t => t.tandaAddress.toLowerCase() === tandaAddress.toLowerCase()
-    )
-    if (tandaIndex !== -1) {
-      tandasByUser[userAddress][tandaIndex] = foundTanda
-    }
-  }
-  
-  // Add the tanda to the new participant's list
-  if (!tandasByUser[participantKey]) {
-    tandasByUser[participantKey] = []
-  }
-  
-  // Check if tanda already exists in participant's list (shouldn't happen, but safety check)
-  const existsInParticipantList = tandasByUser[participantKey].some(
-    t => t.tandaAddress.toLowerCase() === tandaAddress.toLowerCase()
+  // Update users.json - ensure participant exists and add tanda to their list
+  let participantUser = usersData.users.find(
+    u => u.userAddress.toLowerCase() === participantLower
   )
-  if (!existsInParticipantList) {
-    tandasByUser[participantKey].push(foundTanda)
+  
+  if (!participantUser) {
+    // Create new user entry for participant
+    participantUser = {
+      userAddress: participantAddress,
+      tandas: [],
+    }
+    usersData.users.push(participantUser)
   }
   
-  await fs.writeFile(TANDAS_FILE, JSON.stringify(tandasByUser, null, 2), 'utf-8')
+  // Add tanda address to participant's tandas if not already present
+  if (!participantUser.tandas.some(addr => addr.toLowerCase() === tandaAddressLower)) {
+    participantUser.tandas.push(tandaAddress)
+  }
+  
+  await fs.writeFile(USERS_FILE, JSON.stringify(usersData, null, 2), 'utf-8')
 }
 
 // Update average credit score for a tanda
 export async function updateTandaAverageCredit(tandaAddress: string, averageCredit: string): Promise<void> {
   await ensureDataDir()
-  const tandasByUser = await getTandasByUser()
+  const tandasData = await getTandasData()
+  const tandaAddressLower = tandaAddress.toLowerCase()
   
-  // Update the tanda in ALL users' lists
-  for (const userAddress in tandasByUser) {
-    const tandaIndex = tandasByUser[userAddress].findIndex(
-      t => t.tandaAddress.toLowerCase() === tandaAddress.toLowerCase()
-    )
-    if (tandaIndex !== -1) {
-      tandasByUser[userAddress][tandaIndex].averageCredit = averageCredit
-    }
+  if (!tandasData[tandaAddressLower]) {
+    throw new Error("Tanda not found")
   }
   
-  await fs.writeFile(TANDAS_FILE, JSON.stringify(tandasByUser, null, 2), 'utf-8')
+  tandasData[tandaAddressLower].averageCredit = averageCredit
+  await fs.writeFile(TANDAS_FILE, JSON.stringify(tandasData, null, 2), 'utf-8')
 }

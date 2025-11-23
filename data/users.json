@@ -1,0 +1,27 @@
+{
+  "users": [
+    {
+      "userAddress": "0x117f95e512dc2fa708a559a7182ba60c6037a92e",
+      "tandas": [
+        "0xf215d07CEE11C9526192a4e83948fBD8922D4B73",
+        "0x437389209A8c65a62B2E688217391392038421C4"
+      ]
+    },
+    {
+      "userAddress": "0xa1acbcc036a4d1786b58cf9c270c9726b0f51c2e",
+      "tandas": [
+        "0xf215d07CEE11C9526192a4e83948fBD8922D4B73",
+        "0x9Fedf0DD9475bDb587FFFd195Ac81DDdcd764E36",
+        "0xb2e06A946827c8A8cba3c2366CFe118D40b16f82",
+        "0x810A828AbF9877d5FeDe43F2b865Cb22f7400886"
+      ]
+    },
+    {
+      "userAddress": "0x83145c8de2ec7f16876eeef954e12f56c6f0e5d1",
+      "tandas": [
+        "0xb2e06A946827c8A8cba3c2366CFe118D40b16f82",
+        "0x810A828AbF9877d5FeDe43F2b865Cb22f7400886"
+      ]
+    }
+  ]
+}
