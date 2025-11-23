@@ -1,11 +1,11 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { MiniKit } from '@worldcoin/minikit-js'
 import { CreateGroupModal } from "@/components/create-group-modal"
 import TandaArtifact from "@/abi/Tanda.json"
 import Permit2ABI from "@/abi/Permit2.json"
+import supabase from '@/lib/supabase'
 
 // Extract ABI from artifact
 const TandaABI = TandaArtifact.abi
@@ -36,7 +36,6 @@ interface TandaOnChainData {
 }
 
 export default function HomePage() {
-  const router = useRouter()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [tandas, setTandas] = useState<TandaData[]>([])
@@ -333,30 +332,16 @@ export default function HomePage() {
             <h1 className="text-2xl md:text-3xl font-bold text-white">
               {username || "Dashboard"}
             </h1>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setIsModalOpen(true)}
-                className="p-2 bg-[#ff1493] text-white rounded-lg hover:opacity-90 transition-opacity"
-                title="Start Group"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"></line>
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-              </button>
-              <button
-                onClick={() => router.push('/join')}
-                className="p-2 bg-[#ff1493] text-white rounded-lg hover:opacity-90 transition-opacity"
-                title="Join Group"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                  <circle cx="9" cy="7" r="4"></circle>
-                  <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                  <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                </svg>
-              </button>
-            </div>
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="p-2 bg-[#ff1493] text-white rounded-lg hover:opacity-90 transition-opacity"
+              title="Start Group"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+            </button>
           </div>
         </header>
 
@@ -383,67 +368,74 @@ export default function HomePage() {
                     key={tanda.tandaAddress}
                     className="bg-gray-900 border border-gray-800 rounded-lg p-6 hover:border-gray-700 transition-colors"
                   >
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-xl font-bold text-white mb-1">{tanda.name}</h3>
-                        <button
-                          onClick={() => {
-                            window.open(`https://worldscan.org/address/${tanda.tandaAddress}`, '_blank')
-                          }}
-                          className="text-xs text-gray-400 hover:text-gray-300 font-mono transition-colors"
-                        >
-                          {tanda.tandaAddress.slice(0, 10)}...{tanda.tandaAddress.slice(-8)}
-                        </button>
+                    {/* Title - bigger and pink */}
+                    <div className="mb-4">
+                      <h3 className="text-2xl font-bold text-[#ff1493] mb-2">{tanda.name}</h3>
+                      <button
+                        onClick={() => {
+                          window.open(`https://worldscan.org/address/${tanda.tandaAddress}`, '_blank')
+                        }}
+                        className="text-xs text-gray-400 hover:text-gray-300 font-mono transition-colors"
+                      >
+                        {tanda.tandaAddress.slice(0, 10)}...{tanda.tandaAddress.slice(-8)}
+                      </button>
+                    </div>
+                    
+                    {/* Horizontal line under title */}
+                    <div className="border-b border-gray-800 mb-4"></div>
+                    
+                    {/* Data in two columns */}
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      {/* Left column */}
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Vault Balance</p>
+                          <p className="text-lg font-semibold text-white">
+                            {vaultBalance} USDC
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Avg Credit Score</p>
+                          <p className="text-lg font-semibold text-white">
+                            {tanda.averageCredit ? parseFloat(tanda.averageCredit).toFixed(1) : 'N/A'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Next Payment Due</p>
+                          <p className="text-sm font-medium text-white">
+                            {onChainData ? formatDate(onChainData.nextPaymentDue) : 'Loading...'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      {/* Right column */}
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Members</p>
+                          <p className="text-lg font-semibold text-white">
+                            {tanda.participants.length}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Can Claim On</p>
+                          <p className="text-sm font-medium text-white">
+                            {onChainData ? formatDate(onChainData.claimDate) : 'Loading...'}
+                          </p>
+                        </div>
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                      {/* Payment Info */}
+                    {/* Horizontal line below data */}
+                    <div className="border-b border-gray-800 mb-4"></div>
+                    
+                    {/* Bottom: Payment/time on left, Pay button on right */}
+                    <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-xs text-gray-500 mb-1">Payment</p>
+                        <p className="text-sm text-gray-500">Payment</p>
                         <p className="text-lg font-semibold text-white">
                           ${paymentAmount}/{frequency}
                         </p>
                       </div>
-                      
-                      {/* Vault Balance */}
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Vault Balance</p>
-                        <p className="text-lg font-semibold text-green-400">
-                          {vaultBalance} USDC
-                        </p>
-                      </div>
-                      
-                      {/* Average Credit Score */}
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Avg Credit Score</p>
-                        <p className="text-lg font-semibold text-blue-400">
-                          {tanda.averageCredit ? parseFloat(tanda.averageCredit).toFixed(1) : 'N/A'}
-                        </p>
-                      </div>
-                      
-                      {/* Next Payment Due */}
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Next Payment Due</p>
-                        <p className="text-sm font-medium text-white">
-                          {onChainData ? formatDate(onChainData.nextPaymentDue) : 'Loading...'}
-                        </p>
-                      </div>
-                      
-                      {/* Claim Date */}
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Can Claim On</p>
-                        <p className="text-sm font-medium text-yellow-400">
-                          {onChainData ? formatDate(onChainData.claimDate) : 'Loading...'}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    {/* Members count and Pay button */}
-                    <div className="mt-4 pt-4 border-t border-gray-800 flex items-center justify-between">
-                      <p className="text-sm text-gray-400">
-                        <span className="font-semibold text-white">{tanda.participants.length}</span> members
-                      </p>
                       {onChainData?.hasPaid === true ? (
                         <span className="py-2 px-6 bg-gray-700 text-gray-300 font-semibold text-sm rounded-lg">
                           Paid

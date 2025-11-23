@@ -209,45 +209,20 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
             </p>
           </div>
 
-          {/* Visibility Toggle & Credit Requirement - Side by Side */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-white/80 mb-1.5">
-                Visibility
-              </label>
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setIsPublic(!isPublic)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#ff1493] focus:ring-offset-2 focus:ring-offset-gray-900 ${
-                    isPublic ? 'bg-[#ff1493]' : 'bg-gray-700'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                      isPublic ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-                <span className="text-sm text-white/90">
-                  {isPublic ? 'Public' : 'Private'}
-                </span>
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-white/80 mb-1.5">
-                Min Credit Score <span className="text-gray-500 font-normal">(Optional)</span>
-              </label>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0"
-                value={creditRequirement}
-                onChange={(e) => setCreditRequirement(e.target.value)}
-                className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
-              />
-            </div>
+          {/* Credit Requirement */}
+          <div>
+            <label className="block text-sm font-medium text-white/80 mb-1.5">
+              Min Credit Score <span className="text-gray-500 font-normal">(Optional)</span>
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0"
+              value={creditRequirement}
+              onChange={(e) => setCreditRequirement(e.target.value)}
+              className="bg-gray-800 border-gray-700 text-white placeholder:text-gray-500"
+            />
           </div>
 
           {/* Buttons */}
