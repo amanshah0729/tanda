@@ -51,7 +51,7 @@ export const GET = async (
     const userAddress = req.nextUrl.searchParams.get('userAddress') as `0x${string}` | null
 
     // Fetch on-chain data
-    const [vaultBalance, cycleStartTime, paymentFrequency, currentRecipient, allHavePaid, paymentAmount] = await Promise.all([
+    const [vaultBalance, cycleStartTime, paymentFrequency, currentRecipient, allHavePaid, paymentAmount, participants] = await Promise.all([
       publicClient.readContract({
         address: tandaAddress,
         abi: TandaABI,
@@ -82,6 +82,11 @@ export const GET = async (
         abi: TandaABI,
         functionName: "paymentAmount",
       }),
+      publicClient.readContract({
+        address: tandaAddress,
+        abi: TandaABI,
+        functionName: "getParticipants",
+      }),
     ])
 
     // Check if user has paid (if userAddress provided)
@@ -103,8 +108,30 @@ export const GET = async (
     // Next payment due: cycle end date (payments are due before cycle ends)
     const nextPaymentDue = new Date(cycleEndTimestamp)
     
-    // Claim date: when current recipient can claim (cycle end or when all have paid)
-    const claimDate = allHavePaid ? new Date() : new Date(cycleEndTimestamp)
+    // Calculate user-specific claim date based on their position in participants array
+    // User at position 0 can claim at: cycleStartTime + paymentFrequency
+    // User at position 1 can claim at: cycleStartTime + (paymentFrequency * 2)
+    // User at position 2 can claim at: cycleStartTime + (paymentFrequency * 3)
+    // etc.
+    let claimDate: Date
+    if (userAddress) {
+      const participantsArray = participants as string[]
+      const userIndex = participantsArray.findIndex(
+        (addr: string) => addr.toLowerCase() === userAddress.toLowerCase()
+      )
+      
+      if (userIndex >= 0) {
+        // Calculate claim date: cycleStartTime + (paymentFrequency * (userIndex + 1))
+        const userClaimTimestamp = cycleStartTimestamp + (frequencySeconds * (userIndex + 1) * 1000)
+        claimDate = new Date(userClaimTimestamp)
+      } else {
+        // User not found in participants, use default (shouldn't happen)
+        claimDate = allHavePaid ? new Date() : new Date(cycleEndTimestamp)
+      }
+    } else {
+      // No user address provided, use default claim date (for current recipient)
+      claimDate = allHavePaid ? new Date() : new Date(cycleEndTimestamp)
+    }
 
     return NextResponse.json({
       success: true,

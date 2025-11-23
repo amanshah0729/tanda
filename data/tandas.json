@@ -84,5 +84,19 @@
     "isPublic": true,
     "creditRequirement": "0",
     "averageCredit": "1.00"
+  },
+  "0xf1f966545430297eb447a80da047f34cd7c0d185": {
+    "name": "personal",
+    "transactionHash": "0x157643c10e1e0a8090fd2d859484802fb1cccd6fbc891ed0235ae23b85771ead",
+    "blockNumber": "22272895",
+    "participants": [
+      "0xa1acbcc036a4d1786b58cf9c270c9726b0f51c2e"
+    ],
+    "paymentAmount": "50000",
+    "paymentFrequency": "90",
+    "createdAt": "2025-11-23T07:03:53.988Z",
+    "isPublic": true,
+    "creditRequirement": "0",
+    "averageCredit": "1.00"
   }
 }

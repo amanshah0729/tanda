@@ -348,8 +348,19 @@ export default function HomePage() {
         throw new Error(errorMsg)
       }
 
-      // Step 4: Confirm payment - backend transfers to vault and marks user as paid
-      const confirmResponse = await fetch('/api/confirm-payment', {
+      // Optimistically update UI immediately - mark as paid as soon as user accepts
+      setTandaOnChainData(prev => ({
+        ...prev,
+        [tandaAddress]: {
+          ...prev[tandaAddress],
+          hasPaid: true,
+        }
+      }))
+      setPayingTanda(null) // Clear loading state immediately
+
+      // Step 4: Confirm payment in background - backend transfers to vault and marks user as paid
+      // Do this asynchronously so UI updates immediately
+      fetch('/api/confirm-payment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -360,22 +371,44 @@ export default function HomePage() {
           userAddress,
         }),
       })
+        .then(async (confirmResponse) => {
+          const confirmResult = await confirmResponse.json()
+          
+          if (!confirmResult.success) {
+            console.error('Backend confirmation failed:', confirmResult.error)
+            // Revert optimistic update if backend fails
+            setTandaOnChainData(prev => ({
+              ...prev,
+              [tandaAddress]: {
+                ...prev[tandaAddress],
+                hasPaid: false,
+              }
+            }))
+            alert(`⚠️ Payment sent but confirmation failed: ${confirmResult.error}\n\nPlease contact support.`)
+          } else {
+            // Refresh to get latest on-chain data
+            await fetchTandas()
+          }
+        })
+        .catch((error) => {
+          console.error('Error confirming payment:', error)
+          // Revert optimistic update if backend fails
+          setTandaOnChainData(prev => ({
+            ...prev,
+            [tandaAddress]: {
+              ...prev[tandaAddress],
+              hasPaid: false,
+            }
+          }))
+          alert(`⚠️ Payment sent but confirmation failed.\n\nPlease contact support.`)
+        })
 
-      const confirmResult = await confirmResponse.json()
-
-      if (!confirmResult.success) {
-        throw new Error(confirmResult.error || 'Payment confirmation failed')
-      }
-
-      // Success!
+      // Show success message immediately
       alert(
-        `✅ Payment successful!\n\n` +
+        `✅ Payment sent!\n\n` +
         `Transaction ID: ${finalPayload.transaction_id}\n\n` +
-        `Your payment has been recorded.`
+        `Your payment is being processed.`
       )
-
-      // Refresh Tanda data
-      await fetchTandas()
     } catch (error: any) {
       console.error('Error paying:', error)
       alert(`Error making payment: ${error.message || 'Unknown error'}`)
