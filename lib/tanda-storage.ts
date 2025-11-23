@@ -70,10 +70,18 @@ async function getUsersData(): Promise<UsersData> {
     const fileContent = await fs.readFile(USERS_FILE, 'utf-8')
     const trimmedContent = fileContent.trim()
     if (!trimmedContent) {
+      // Write proper structure if file is empty
+      await fs.writeFile(USERS_FILE, JSON.stringify({ users: [] }, null, 2), 'utf-8')
       return { users: [] }
     }
     const parsed = JSON.parse(trimmedContent)
-    return parsed || { users: [] }
+    // Ensure the parsed object has a 'users' array
+    if (!parsed || !parsed.users || !Array.isArray(parsed.users)) {
+      // Fix the file if it has wrong structure
+      await fs.writeFile(USERS_FILE, JSON.stringify({ users: [] }, null, 2), 'utf-8')
+      return { users: [] }
+    }
+    return parsed
   } catch (error: any) {
     if (error.code === 'ENOENT' || error instanceof SyntaxError) {
       if (error instanceof SyntaxError) {

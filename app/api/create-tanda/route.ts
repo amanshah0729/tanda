@@ -174,14 +174,23 @@ export const POST = async (req: NextRequest) => {
           let creditScore: number | null = null
           if (creditResponse.ok) {
             const creditData = await creditResponse.json()
-            creditScore = creditData.creditScore || 
-                          creditData.score || 
-                          creditData.credit_score || 
-                          creditData.data?.creditScore ||
-                          creditData.data?.score ||
-                          null
+            const rawScore = creditData.creditScore || 
+                            creditData.score || 
+                            creditData.credit_score || 
+                            creditData.data?.creditScore ||
+                            creditData.data?.score ||
+                            null
+            
+            // Handle "N/A" or null values - treat as 0 for validation
+            if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
+              creditScore = 0
+            } else {
+              const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
+              creditScore = isNaN(parsedScore) ? 0 : parsedScore
+            }
           }
 
+          // If credit score is 0 (N/A) or below requirement, fail validation
           if (creditScore === null || creditScore < creditRequirement) {
             failedParticipants.push({ address: participant, score: creditScore })
           } else {
@@ -303,20 +312,30 @@ export const POST = async (req: NextRequest) => {
             }
           )
           
+          let creditScore = 0
           if (creditResponse.ok) {
             const creditData = await creditResponse.json()
-            const creditScore = creditData.creditScore || 
-                              creditData.score || 
-                              creditData.credit_score || 
-                              creditData.data?.creditScore ||
-                              creditData.data?.score ||
-                              0
-            if (creditScore > 0) {
-              creditScores.push(creditScore)
+            const rawScore = creditData.creditScore || 
+                            creditData.score || 
+                            creditData.credit_score || 
+                            creditData.data?.creditScore ||
+                            creditData.data?.score ||
+                            null
+            
+            // Handle "N/A" or null values - treat as 0
+            if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
+              creditScore = 0
+            } else {
+              const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
+              creditScore = isNaN(parsedScore) ? 0 : parsedScore
             }
           }
+          // Always add the score (including 0) to the array for average calculation
+          creditScores.push(creditScore)
         } catch (error) {
           console.log(`Could not fetch credit score for ${participant}:`, error)
+          // If we can't fetch, count as 0
+          creditScores.push(0)
         }
       }
       
