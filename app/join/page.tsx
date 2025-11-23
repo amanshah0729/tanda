@@ -105,6 +105,55 @@ export default function JoinPage() {
       const result = await response.json()
 
       if (!response.ok || !result.success) {
+        // Check if it's a credit score issue
+        if (result.creditScoreInsufficient) {
+          // Show popup for credit score issue
+          const creditPopup = document.createElement('div')
+          creditPopup.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm'
+          creditPopup.innerHTML = `
+            <div class="bg-gray-900 border border-gray-700 rounded-xl p-6 max-w-md mx-4 shadow-xl">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold text-white">Credit Score Required</h3>
+                <button class="text-gray-400 hover:text-white transition-colors text-2xl leading-none" onclick="this.closest('.fixed').remove()">×</button>
+              </div>
+              <div class="space-y-4">
+                <p class="text-gray-300">
+                  This group requires a minimum credit score of <span class="font-bold text-yellow-400">${result.requiredCreditScore}</span> to join.
+                </p>
+                <div class="bg-gray-800 rounded-lg p-4">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-gray-400">Your Credit Score:</span>
+                    <span class="text-lg font-bold ${result.userCreditScore >= result.requiredCreditScore ? 'text-green-400' : 'text-red-400'}">${result.userCreditScore || 'N/A'}</span>
+                  </div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-gray-400">Required Score:</span>
+                    <span class="text-lg font-bold text-yellow-400">${result.requiredCreditScore}</span>
+                  </div>
+                </div>
+                <p class="text-sm text-gray-400">
+                  Please improve your credit score or look for groups with lower requirements.
+                </p>
+                <button 
+                  onclick="this.closest('.fixed').remove()"
+                  class="w-full py-2 px-4 bg-[#ff1493] text-white font-semibold rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          `
+          document.body.appendChild(creditPopup)
+          
+          // Remove popup when clicking outside
+          creditPopup.addEventListener('click', (e) => {
+            if (e.target === creditPopup) {
+              creditPopup.remove()
+            }
+          })
+          
+          return
+        }
+        
         throw new Error(result.error || 'Failed to join group')
       }
 

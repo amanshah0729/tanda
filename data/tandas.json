@@ -13,7 +13,23 @@
       "paymentFrequency": "86400",
       "createdAt": "2025-11-23T00:27:52.415Z",
       "isPublic": true,
-      "creditRequirement": "1"
+      "creditRequirement": "1",
+      "averageCredit": "2.5"
+    },
+    {
+      "name": "trusted ppl",
+      "tandaAddress": "0x437389209A8c65a62B2E688217391392038421C4",
+      "transactionHash": "0xb3fd6372d6b9fd9982139c97d368aae69af5211a188f3096cfe1ad0e8440213b",
+      "blockNumber": "22261093",
+      "participants": [
+        "0x117F95E512Dc2FA708A559a7182Ba60c6037a92E"
+      ],
+      "paymentAmount": "10000",
+      "paymentFrequency": "86400",
+      "createdAt": "2025-11-23T00:30:28.515Z",
+      "isPublic": true,
+      "creditRequirement": "2",
+      "averageCredit": "3.2"
     }
   ],
   "0xa1acbcc036a4d1786b58cf9c270c9726b0f51c2e": [
@@ -30,7 +46,8 @@
       "paymentFrequency": "86400",
       "createdAt": "2025-11-23T00:27:52.415Z",
       "isPublic": true,
-      "creditRequirement": "1"
+      "creditRequirement": "1",
+      "averageCredit": "2.5"
     }
   ]
 }

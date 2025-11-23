@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createWalletClient, createPublicClient, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import TandaArtifact from "@/abi/Tanda.json"
-import { getTandaByAddress, addParticipantToTanda } from "@/lib/tanda-storage"
+import { getTandaByAddress, addParticipantToTanda, updateTandaAverageCredit } from "@/lib/tanda-storage"
 
 // Extract ABI from artifact
 const TandaABI = TandaArtifact.abi
@@ -135,6 +135,9 @@ export const POST = async (req: NextRequest) => {
             {
               success: false,
               error: `Credit score requirement not met. Required: ${creditRequirement}, Your score: ${userCreditScore || 'N/A'}`,
+              creditScoreInsufficient: true,
+              userCreditScore: userCreditScore || 0,
+              requiredCreditScore: creditRequirement,
             },
             { status: 403 }
           )
@@ -216,8 +219,80 @@ export const POST = async (req: NextRequest) => {
       )
     }
 
+    // Get user's credit score for average calculation
+    let userCreditScore = 0
+    try {
+      const creditResponse = await fetch(
+        `https://credit.cash/api/borrower/${body.userAddress}`,
+        {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+          },
+        }
+      )
+      
+      if (creditResponse.ok) {
+        const creditData = await creditResponse.json()
+        userCreditScore = creditData.creditScore || 
+                         creditData.score || 
+                         creditData.credit_score || 
+                         creditData.data?.creditScore ||
+                         creditData.data?.score ||
+                         0
+      }
+    } catch (error) {
+      console.log('Could not fetch credit score for average calculation:', error)
+    }
+
     // Update local storage - add user to tanda's participants
     await addParticipantToTanda(body.tandaAddress, body.userAddress)
+    
+    // Recalculate average credit score for the tanda
+    const updatedTanda = await getTandaByAddress(body.tandaAddress)
+    if (updatedTanda) {
+      try {
+        const creditScores: number[] = []
+        for (const participant of updatedTanda.participants) {
+          try {
+            const creditResponse = await fetch(
+              `https://credit.cash/api/borrower/${participant}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/json',
+                },
+              }
+            )
+            
+            if (creditResponse.ok) {
+              const creditData = await creditResponse.json()
+              const score = creditData.creditScore || 
+                            creditData.score || 
+                            creditData.credit_score || 
+                            creditData.data?.creditScore ||
+                            creditData.data?.score ||
+                            0
+              if (score > 0) {
+                creditScores.push(score)
+              }
+            }
+          } catch (error) {
+            console.log(`Could not fetch credit score for ${participant}:`, error)
+          }
+        }
+        
+        if (creditScores.length > 0) {
+          const sum = creditScores.reduce((a, b) => a + b, 0)
+          const averageCredit = (sum / creditScores.length).toFixed(2)
+          
+          // Update average credit in storage
+          await updateTandaAverageCredit(body.tandaAddress, averageCredit)
+        }
+      } catch (error) {
+        console.log('Error recalculating average credit score:', error)
+      }
+    }
 
     // Return success response
     return NextResponse.json({

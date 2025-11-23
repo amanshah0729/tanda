@@ -25,6 +25,7 @@ interface TandaData {
   createdAt: string
   isPublic?: boolean
   creditRequirement?: string
+  averageCredit?: string
 }
 
 interface TandaOnChainData {
@@ -396,7 +397,7 @@ export default function HomePage() {
                       </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                       {/* Payment Info */}
                       <div>
                         <p className="text-xs text-gray-500 mb-1">Payment</p>
@@ -410,6 +411,14 @@ export default function HomePage() {
                         <p className="text-xs text-gray-500 mb-1">Vault Balance</p>
                         <p className="text-lg font-semibold text-green-400">
                           {vaultBalance} USDC
+                        </p>
+                      </div>
+                      
+                      {/* Average Credit Score */}
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Avg Credit Score</p>
+                        <p className="text-lg font-semibold text-blue-400">
+                          {tanda.averageCredit ? parseFloat(tanda.averageCredit).toFixed(1) : 'N/A'}
                         </p>
                       </div>
                       

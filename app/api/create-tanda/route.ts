@@ -220,6 +220,47 @@ export const POST = async (req: NextRequest) => {
       console.warn("Could not read TandaCreated event, using predicted address:", error)
     }
 
+    // Calculate average credit score for all participants
+    let averageCredit = "0"
+    try {
+      const creditScores: number[] = []
+      for (const participant of body.participants) {
+        try {
+          const creditResponse = await fetch(
+            `https://credit.cash/api/borrower/${participant}`,
+            {
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json',
+              },
+            }
+          )
+          
+          if (creditResponse.ok) {
+            const creditData = await creditResponse.json()
+            const creditScore = creditData.creditScore || 
+                              creditData.score || 
+                              creditData.credit_score || 
+                              creditData.data?.creditScore ||
+                              creditData.data?.score ||
+                              0
+            if (creditScore > 0) {
+              creditScores.push(creditScore)
+            }
+          }
+        } catch (error) {
+          console.log(`Could not fetch credit score for ${participant}:`, error)
+        }
+      }
+      
+      if (creditScores.length > 0) {
+        const sum = creditScores.reduce((a, b) => a + b, 0)
+        averageCredit = (sum / creditScores.length).toFixed(2)
+      }
+    } catch (error) {
+      console.log('Error calculating average credit score:', error)
+    }
+
     // Save Tanda data to JSON file
     const tandaData = {
       name: body.name.trim(),
@@ -232,6 +273,7 @@ export const POST = async (req: NextRequest) => {
       createdAt: new Date().toISOString(),
       isPublic: body.isPublic ?? true,
       creditRequirement: body.creditRequirement || "0",
+      averageCredit,
     }
 
     await addTanda(tandaData, body.creatorAddress)

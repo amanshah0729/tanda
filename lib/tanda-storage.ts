@@ -15,6 +15,7 @@ export interface TandaData {
   createdAt: string
   isPublic: boolean
   creditRequirement: string
+  averageCredit?: string // Average credit score of all participants
 }
 
 // Structure: { "userAddress": [TandaData[]] }
@@ -225,3 +226,20 @@ export async function addParticipantToTanda(tandaAddress: string, participantAdd
   await fs.writeFile(TANDAS_FILE, JSON.stringify(tandasByUser, null, 2), 'utf-8')
 }
 
+// Update average credit score for a tanda
+export async function updateTandaAverageCredit(tandaAddress: string, averageCredit: string): Promise<void> {
+  await ensureDataDir()
+  const tandasByUser = await getTandasByUser()
+  
+  // Update the tanda in ALL users' lists
+  for (const userAddress in tandasByUser) {
+    const tandaIndex = tandasByUser[userAddress].findIndex(
+      t => t.tandaAddress.toLowerCase() === tandaAddress.toLowerCase()
+    )
+    if (tandaIndex !== -1) {
+      tandasByUser[userAddress][tandaIndex].averageCredit = averageCredit
+    }
+  }
+  
+  await fs.writeFile(TANDAS_FILE, JSON.stringify(tandasByUser, null, 2), 'utf-8')
+}
