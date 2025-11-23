@@ -1,18 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { MiniKit } from '@worldcoin/minikit-js'
+import { MiniKit, tokenToDecimals, Tokens, PayCommandInput } from '@worldcoin/minikit-js'
 import { CreateGroupModal } from "@/components/create-group-modal"
 import TandaArtifact from "@/abi/Tanda.json"
-import Permit2ABI from "@/abi/Permit2.json"
 import supabase from '@/lib/supabase'
 
 // Extract ABI from artifact
 const TandaABI = TandaArtifact.abi
-
-// Constants
-const PERMIT2_ADDRESS = "0xF0882554ee924278806d708396F1a7975b732522" as `0x${string}` // Standard Permit2 address
-const USDC_ADDRESS = "0x79A02482A880bCE3F13e09Da970dC34db4CD24d1" as `0x${string}` // USDC on World Chain
 
 interface TandaData {
   name: string
@@ -42,6 +37,7 @@ export default function HomePage() {
   const [tandaOnChainData, setTandaOnChainData] = useState<Record<string, TandaOnChainData>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [payingTanda, setPayingTanda] = useState<string | null>(null)
+  const [claimingTanda, setClaimingTanda] = useState<string | null>(null)
   const [username, setUsername] = useState<string>("")
   const [creditError, setCreditError] = useState<{ message: string; details?: any } | null>(null)
 
@@ -219,6 +215,75 @@ export default function HomePage() {
     }
   }
 
+  const handleClaim = async (tandaAddress: string) => {
+    if (!MiniKit.isInstalled()) {
+      alert("World ID MiniKit is not installed. Please install the World App.")
+      return
+    }
+
+    const userAddress = localStorage.getItem('wallet-address')
+    if (!userAddress) {
+      alert("Please sign in first")
+      return
+    }
+
+    // Get Tanda data
+    const tanda = tandas.find(t => t.tandaAddress.toLowerCase() === tandaAddress.toLowerCase())
+    if (!tanda) return
+
+    const onChainData = tandaOnChainData[tandaAddress]
+    if (!onChainData) {
+      alert("Loading Tanda data...")
+      return
+    }
+
+    // Check if claim date has passed
+    const canClaim = onChainData.claimDate 
+      ? new Date() >= new Date(onChainData.claimDate)
+      : false
+
+    if (!canClaim) {
+      alert("You cannot claim yet. Wait until the claim date.")
+      return
+    }
+
+    setClaimingTanda(tandaAddress)
+
+    try {
+      // Call claim() function on Tanda contract
+      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
+        transaction: [
+          {
+            address: tandaAddress as `0x${string}`,
+            abi: TandaABI as any,
+            functionName: 'claim',
+            args: [],
+          },
+        ],
+      })
+
+      if (finalPayload.status === 'error') {
+        const errorMsg = (finalPayload as any).error || (finalPayload as any).message || 'Transaction failed'
+        throw new Error(errorMsg)
+      }
+
+      // Success!
+      alert(
+        `✅ Claim successful!\n\n` +
+        `Transaction ID: ${finalPayload.transaction_id}\n\n` +
+        `Funds have been transferred to you.`
+      )
+
+      // Refresh Tanda data
+      await fetchTandas()
+    } catch (error: any) {
+      console.error('Error claiming:', error)
+      alert(`Error claiming funds: ${error.message || 'Unknown error'}`)
+    } finally {
+      setClaimingTanda(null)
+    }
+  }
+
   const handlePay = async (tandaAddress: string) => {
     if (!MiniKit.isInstalled()) {
       alert("World ID MiniKit is not installed. Please install the World App.")
@@ -250,70 +315,56 @@ export default function HomePage() {
     setPayingTanda(tandaAddress)
 
     try {
-      // Payment amount in wei (6 decimals for USDC) - keep as string for consistency
-      const paymentAmount = String(tanda.paymentAmount)
-      
-      // Capture timestamp once to ensure consistency between nonce and deadline
-      const now = Date.now()
-
-      
-      // Permit2 permit data - values must match exactly between permit2 array and args
-      const permitTransfer = {
-        permitted: {
-          token: USDC_ADDRESS,
-          amount: paymentAmount,
-        },
-        nonce: Date.now().toString(),
-        deadline: Math.floor((Date.now() + 30 * 60 * 1000) / 1000).toString(),
-      }
-
-      const transferDetails = {
-        to: tandaAddress as `0x${string}`,
-        requestedAmount: paymentAmount,
-      }
-
-      // Call Permit2 signatureTransfer + Tanda payAfterPermit2
-      // Using nested array format that matches Permit2 ABI structure exactly
-      const { finalPayload } = await MiniKit.commandsAsync.sendTransaction({
-        transaction: [
-          {
-            // First transaction: Permit2 signatureTransfer (transfers USDC)
-            address: '0xF0882554ee924278806d708396F1a7975b732522',
-            abi: Permit2ABI as any,
-            functionName: 'signatureTransfer',
-            args: [
-              // PermitTransferFrom struct: [permitted (TokenPermissions), nonce, deadline]
-              [
-                // TokenPermissions struct: [token, amount]
-                [
-                  permitTransfer.permitted.token,
-                  permitTransfer.permitted.amount,
-                ],
-                permitTransfer.nonce,
-                permitTransfer.deadline,
-              ],
-              // SignatureTransferDetails struct: [to, requestedAmount]
-              [
-                transferDetails.to,
-                transferDetails.requestedAmount,
-              ],
-              'PERMIT2_SIGNATURE_PLACEHOLDER_0', // Placeholder will be replaced with correct signature
-            ],
-          },
-
-        ],
-        permit2: [
-          {
-            ...permitTransfer,
-            spender: tandaAddress as `0x${string}`,
-          },
-        ],
-        formatPayload: false, // Re-enable formatting - let MiniKit handle proper encoding
+      // Step 1: Initiate payment - get reference ID and backend wallet address
+      const initiateResponse = await fetch('/api/initiate-payment', {
+        method: 'POST',
       })
+      const { id: referenceId, backendWalletAddress } = await initiateResponse.json()
+
+      if (!referenceId || !backendWalletAddress) {
+        throw new Error('Failed to initiate payment')
+      }
+
+      // Step 2: Calculate payment amount in USDC (6 decimals)
+      const paymentAmountUSDC = Number(tanda.paymentAmount) / 1e6
+
+      // Step 3: Use MiniKit pay command to send USDC to backend wallet
+      const payPayload: PayCommandInput = {
+        reference: referenceId,
+        to: backendWalletAddress,
+        tokens: [
+          {
+            symbol: Tokens.USDC,
+            token_amount: tokenToDecimals(paymentAmountUSDC, Tokens.USDC).toString(),
+          },
+        ],
+        description: `Payment for Tanda: ${tanda.name}`,
+      }
+
+      const { finalPayload } = await MiniKit.commandsAsync.pay(payPayload)
 
       if (finalPayload.status === 'error') {
-        const errorMsg = (finalPayload as any).error || (finalPayload as any).message || 'Transaction failed'
+        const errorMsg = (finalPayload as any).error || (finalPayload as any).message || 'Payment failed'
         throw new Error(errorMsg)
+      }
+
+      // Step 4: Confirm payment - backend transfers to vault and marks user as paid
+      const confirmResponse = await fetch('/api/confirm-payment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          payload: finalPayload,
+          tandaAddress,
+          userAddress,
+        }),
+      })
+
+      const confirmResult = await confirmResponse.json()
+
+      if (!confirmResult.success) {
+        throw new Error(confirmResult.error || 'Payment confirmation failed')
       }
 
       // Success!
@@ -456,13 +507,15 @@ export default function HomePage() {
                           // Show Claim button when eligible
                           return (
                             <button
-                              onClick={() => {
-                                // TODO: Implement claim functionality
-                                console.log('Claim clicked for', tanda.tandaAddress)
-                              }}
-                              className="py-2 px-6 font-semibold text-sm rounded-lg bg-green-600 text-white hover:opacity-90 transition-opacity"
+                              onClick={() => handleClaim(tanda.tandaAddress)}
+                              disabled={claimingTanda === tanda.tandaAddress}
+                              className={`py-2 px-6 font-semibold text-sm rounded-lg transition-opacity ${
+                                claimingTanda === tanda.tandaAddress
+                                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                  : 'bg-green-600 text-white hover:opacity-90'
+                              }`}
                             >
-                              Claim
+                              {claimingTanda === tanda.tandaAddress ? 'Claiming...' : 'Claim'}
                             </button>
                           )
                         } else if (onChainData?.hasPaid === true) {

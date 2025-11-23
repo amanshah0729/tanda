@@ -1,6 +1,7 @@
 async function testDeposit() {
-  const TANDA_ADDRESS = "0x45846BDB8eaeF136a24cB7FAcd6abFfbf616A034"
-  const AMOUNT = "0.01" // USDC
+  const TANDA_ADDRESS = "0x043AC12bB9506639aD81456bceaa20226DEAA38b"
+
+  const AMOUNT = "0.05" // USDC
 
   try {
     console.log(`Depositing ${AMOUNT} USDC to Tanda: ${TANDA_ADDRESS}`)

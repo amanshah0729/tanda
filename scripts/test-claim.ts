@@ -1,5 +1,5 @@
 async function testClaim() {
-  const TANDA_ADDRESS = "0x45846BDB8eaeF136a24cB7FAcd6abFfbf616A034"
+  const TANDA_ADDRESS = "0x198CD5582C3855a8aaF831A4165f3AB3C11e5fE9"
 
   try {
     console.log(`Claiming funds from Tanda: ${TANDA_ADDRESS}`)
