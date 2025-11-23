@@ -23,7 +23,7 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
   const [participants, setParticipants] = useState<string>("")
   const [paymentAmount, setPaymentAmount] = useState<string>("")
   const [paymentFrequency, setPaymentFrequency] = useState<string>("")
-  const [frequencyUnit, setFrequencyUnit] = useState<"days" | "weeks" | "months">("days")
+  const [frequencyUnit, setFrequencyUnit] = useState<"days" | "weeks" | "months" | "seconds">("days")
   const [isPublic, setIsPublic] = useState<boolean>(true)
   const [creditRequirement, setCreditRequirement] = useState<string>("")
 
@@ -79,6 +79,9 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
     const frequencyValue = parseFloat(paymentFrequency)
 
     switch (frequencyUnit) {
+      case "seconds":
+        frequencyInSeconds = frequencyValue
+        break
       case "days":
         frequencyInSeconds = frequencyValue * 24 * 60 * 60
         break
@@ -181,9 +184,10 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
                 />
                 <select
                   value={frequencyUnit}
-                  onChange={(e) => setFrequencyUnit(e.target.value as "days" | "weeks" | "months")}
+                  onChange={(e) => setFrequencyUnit(e.target.value as "days" | "weeks" | "months" | "seconds")}
                   className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#ff1493]"
                 >
+                  <option value="seconds">Seconds</option>
                   <option value="days">Days</option>
                   <option value="weeks">Weeks</option>
                   <option value="months">Months</option>

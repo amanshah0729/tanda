@@ -5,7 +5,7 @@ import TandaFactoryABI from "@/abi/TandaFactory.json"
 import { addTanda } from "@/lib/tanda-storage"
 
 // TandaFactory contract address on World Chain
-const FACTORY_ADDRESS = "0x1d8abc392e739eb267667fb5c715e90f35c90233" as `0x${string}`
+const FACTORY_ADDRESS = "0x2aef2dadd6d888c58fdf57d20721d49ea25d9583" as `0x${string}`
 
 // World Chain configuration
 const WORLD_CHAIN_ID = 480
@@ -151,6 +151,73 @@ export const POST = async (req: NextRequest) => {
       },
       transport: http(rpcUrl),
     })
+
+    // Validate credit scores BEFORE creating transaction
+    const creditRequirement = parseFloat(body.creditRequirement || "0")
+    if (creditRequirement > 0) {
+      const participantCreditScores: Array<{ address: string; score: number }> = []
+      const failedParticipants: Array<{ address: string; score: number | null }> = []
+
+      // Fetch credit scores for all participants
+      for (const participant of body.participants) {
+        try {
+          const creditResponse = await fetch(
+            `https://credit.cash/api/borrower/${participant}`,
+            {
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json',
+              },
+            }
+          )
+          
+          let creditScore: number | null = null
+          if (creditResponse.ok) {
+            const creditData = await creditResponse.json()
+            creditScore = creditData.creditScore || 
+                          creditData.score || 
+                          creditData.credit_score || 
+                          creditData.data?.creditScore ||
+                          creditData.data?.score ||
+                          null
+          }
+
+          if (creditScore === null || creditScore < creditRequirement) {
+            failedParticipants.push({ address: participant, score: creditScore })
+          } else {
+            participantCreditScores.push({ address: participant, score: creditScore })
+          }
+        } catch (error) {
+          console.log(`Could not fetch credit score for ${participant}:`, error)
+          // If we can't fetch credit score and requirement > 0, fail validation
+          failedParticipants.push({ address: participant, score: null })
+        }
+      }
+
+      // If any participants failed validation, return error
+      if (failedParticipants.length > 0) {
+        const failedAddresses = failedParticipants.map(p => p.address).join(', ')
+        const failedScores = failedParticipants.map(p => 
+          p.score === null ? 'N/A' : p.score.toFixed(2)
+        ).join(', ')
+        
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Credit score validation failed",
+            details: {
+              creditRequirement,
+              failedParticipants: failedParticipants.map(p => ({
+                address: p.address,
+                score: p.score,
+              })),
+            },
+            message: `The following participants do not meet the minimum credit requirement of ${creditRequirement}: ${failedAddresses} (scores: ${failedScores})`,
+          },
+          { status: 400 }
+        )
+      }
+    }
 
     // Convert strings to BigInt
     const paymentAmount = BigInt(body.paymentAmount)

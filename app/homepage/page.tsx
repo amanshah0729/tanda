@@ -43,6 +43,7 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [payingTanda, setPayingTanda] = useState<string | null>(null)
   const [username, setUsername] = useState<string>("")
+  const [creditError, setCreditError] = useState<{ message: string; details?: any } | null>(null)
 
   // Fetch Tandas from API (filtered by user)
   const fetchTandas = async () => {
@@ -182,7 +183,16 @@ export default function HomePage() {
       const result = await response.json()
 
       if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to create Tanda')
+        // Check if it's a credit validation error
+        if (result.error === "Credit score validation failed" && result.details) {
+          setCreditError({
+            message: result.message || result.error,
+            details: result.details,
+          })
+          setIsCreating(false)
+          return
+        }
+        throw new Error(result.error || result.message || 'Failed to create Tanda')
       }
 
       // Success!
@@ -428,7 +438,7 @@ export default function HomePage() {
                     {/* Horizontal line below data */}
                     <div className="border-b border-gray-800 mb-4"></div>
                     
-                    {/* Bottom: Payment/time on left, Pay button on right */}
+                    {/* Bottom: Payment/time on left, Pay/Claim button on right */}
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-sm text-gray-500">Payment</p>
@@ -436,23 +446,49 @@ export default function HomePage() {
                           ${paymentAmount}/{frequency}
                         </p>
                       </div>
-                      {onChainData?.hasPaid === true ? (
-                        <span className="py-2 px-6 bg-gray-700 text-gray-300 font-semibold text-sm rounded-lg">
-                          Paid
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handlePay(tanda.tandaAddress)}
-                          disabled={payingTanda === tanda.tandaAddress}
-                          className={`py-2 px-6 font-semibold text-sm rounded-lg transition-opacity ${
-                            payingTanda === tanda.tandaAddress
-                              ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                              : 'bg-[#ff1493] text-white hover:opacity-90'
-                          }`}
-                        >
-                          {payingTanda === tanda.tandaAddress ? 'Paying...' : 'Pay'}
-                        </button>
-                      )}
+                      {(() => {
+                        // Check if claim date has passed
+                        const canClaim = onChainData?.claimDate 
+                          ? new Date() >= new Date(onChainData.claimDate)
+                          : false
+                        
+                        if (canClaim) {
+                          // Show Claim button when eligible
+                          return (
+                            <button
+                              onClick={() => {
+                                // TODO: Implement claim functionality
+                                console.log('Claim clicked for', tanda.tandaAddress)
+                              }}
+                              className="py-2 px-6 font-semibold text-sm rounded-lg bg-green-600 text-white hover:opacity-90 transition-opacity"
+                            >
+                              Claim
+                            </button>
+                          )
+                        } else if (onChainData?.hasPaid === true) {
+                          // Show Paid status
+                          return (
+                            <span className="py-2 px-6 bg-gray-700 text-gray-300 font-semibold text-sm rounded-lg">
+                              Paid
+                            </span>
+                          )
+                        } else {
+                          // Show Pay button
+                          return (
+                            <button
+                              onClick={() => handlePay(tanda.tandaAddress)}
+                              disabled={payingTanda === tanda.tandaAddress}
+                              className={`py-2 px-6 font-semibold text-sm rounded-lg transition-opacity ${
+                                payingTanda === tanda.tandaAddress
+                                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                  : 'bg-[#ff1493] text-white hover:opacity-90'
+                              }`}
+                            >
+                              {payingTanda === tanda.tandaAddress ? 'Paying...' : 'Pay'}
+                            </button>
+                          )
+                        }
+                      })()}
                     </div>
                   </div>
                 )
@@ -475,6 +511,55 @@ export default function HomePage() {
           <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
             <p className="text-white text-lg">Creating Tanda...</p>
             <p className="text-gray-400 text-sm mt-2">Deploying contract on World Chain...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Credit Validation Error Modal */}
+      {creditError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="relative w-full max-w-lg mx-4 bg-gray-900 border border-red-500 rounded-lg shadow-xl">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold text-red-400">Credit Score Validation Failed</h2>
+                <button
+                  onClick={() => setCreditError(null)}
+                  className="text-gray-400 hover:text-white transition-colors text-2xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <p className="text-white mb-4">{creditError.message}</p>
+              
+              {creditError.details && (
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-400">
+                    Minimum Credit Requirement: <span className="text-white font-semibold">{creditError.details.creditRequirement}</span>
+                  </p>
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-400 mb-2">Failed Participants:</p>
+                    <div className="space-y-2">
+                      {creditError.details.failedParticipants.map((participant: any, index: number) => (
+                        <div key={index} className="bg-gray-800 rounded p-3">
+                          <p className="text-white text-sm font-mono break-all">{participant.address}</p>
+                          <p className="text-gray-400 text-xs mt-1">
+                            Credit Score: {participant.score === null ? 'N/A' : participant.score.toFixed(2)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <button
+                onClick={() => setCreditError(null)}
+                className="mt-6 w-full py-2 px-4 bg-[#ff1493] text-white rounded-lg hover:opacity-90 transition-opacity font-semibold"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

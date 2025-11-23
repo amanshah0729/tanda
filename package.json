@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test-supabase": "tsx scripts/test-supabase.ts"
+    "test-supabase": "tsx scripts/test-supabase.ts",
+    "test-deposit": "tsx scripts/test-deposit.ts",
+    "test-claim": "tsx scripts/test-claim.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.69",
