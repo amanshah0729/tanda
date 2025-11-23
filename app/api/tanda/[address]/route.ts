@@ -51,7 +51,7 @@ export const GET = async (
     const userAddress = req.nextUrl.searchParams.get('userAddress') as `0x${string}` | null
 
     // Fetch on-chain data
-    const [vaultBalance, cycleStartTime, paymentFrequency, currentRecipient, allHavePaid, paymentAmount, participants] = await Promise.all([
+    const [vaultBalance, cycleStartTime, paymentFrequency, currentRecipient, currentRecipientIndex, allHavePaid, paymentAmount, participants] = await Promise.all([
       publicClient.readContract({
         address: tandaAddress,
         abi: TandaABI,
@@ -71,6 +71,11 @@ export const GET = async (
         address: tandaAddress,
         abi: TandaABI,
         functionName: "getCurrentRecipient",
+      }),
+      publicClient.readContract({
+        address: tandaAddress,
+        abi: TandaABI,
+        functionName: "currentRecipientIndex",
       }),
       publicClient.readContract({
         address: tandaAddress,
@@ -104,15 +109,25 @@ export const GET = async (
     const cycleStartTimestamp = Number(cycleStartTime) * 1000 // Convert to milliseconds
     const frequencySeconds = Number(paymentFrequency)
     const cycleEndTimestamp = cycleStartTimestamp + (frequencySeconds * 1000)
+    const now = Date.now()
     
     // Next payment due: cycle end date (payments are due before cycle ends)
-    const nextPaymentDue = new Date(cycleEndTimestamp)
+    // If cycle has already ended, calculate next cycle's payment due date
+    // This should NEVER be in the past
+    let nextPaymentDue = new Date(cycleEndTimestamp)
+    if (nextPaymentDue.getTime() < now) {
+      // Cycle has ended, calculate next cycle's payment due
+      const cyclesPassed = Math.floor((now - cycleStartTimestamp) / (frequencySeconds * 1000))
+      const nextCycleStart = cycleStartTimestamp + (frequencySeconds * (cyclesPassed + 1) * 1000)
+      nextPaymentDue = new Date(nextCycleStart + (frequencySeconds * 1000))
+    }
     
-    // Calculate user-specific claim date based on their position in participants array
-    // User at position 0 can claim at: cycleStartTime + paymentFrequency
-    // User at position 1 can claim at: cycleStartTime + (paymentFrequency * 2)
-    // User at position 2 can claim at: cycleStartTime + (paymentFrequency * 3)
-    // etc.
+    // Calculate user-specific claim date based on their position relative to current recipient
+    // After a claim, cycleStartTime resets, so we need to calculate based on:
+    // - Current cycle start time
+    // - User's position relative to current recipient
+    // - Payment frequency intervals
+    // NOTE: Claim date CAN be in the past - this is intentional (user can still claim)
     let claimDate: Date
     if (userAddress) {
       const participantsArray = participants as string[]
@@ -121,8 +136,23 @@ export const GET = async (
       )
       
       if (userIndex >= 0) {
-        // Calculate claim date: cycleStartTime + (paymentFrequency * (userIndex + 1))
-        const userClaimTimestamp = cycleStartTimestamp + (frequencySeconds * (userIndex + 1) * 1000)
+        // Get current recipient index from contract
+        const currentRecipientIdx = Number(currentRecipientIndex)
+        
+        // Calculate how many positions ahead the user is from current recipient
+        let positionsAhead: number
+        if (userIndex >= currentRecipientIdx) {
+          // User is after current recipient in the array
+          positionsAhead = userIndex - currentRecipientIdx
+        } else {
+          // User is before current recipient (wrapped around)
+          positionsAhead = (participantsArray.length - currentRecipientIdx) + userIndex
+        }
+        
+        // Claim date = cycleStartTime + (paymentFrequency * (positionsAhead + 1))
+        // +1 because current recipient claims first, then next person, etc.
+        // This can be in the past - that's fine, user can still claim
+        const userClaimTimestamp = cycleStartTimestamp + (frequencySeconds * (positionsAhead + 1) * 1000)
         claimDate = new Date(userClaimTimestamp)
       } else {
         // User not found in participants, use default (shouldn't happen)

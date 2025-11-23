@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { RelayVerificationSteps } from "@/components/relay-verification-steps"
 
 interface CreateGroupModalProps {
   isOpen: boolean
@@ -31,12 +32,13 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
   const [participants, setParticipants] = useState<string>("")
   const [paymentAmount, setPaymentAmount] = useState<string>("")
   const [paymentFrequency, setPaymentFrequency] = useState<string>("")
-  const [frequencyUnit, setFrequencyUnit] = useState<"days" | "weeks" | "months" | "seconds">("days")
+  const [frequencyUnit, setFrequencyUnit] = useState<"days" | "weeks" | "months">("days")
   const [isPublic, setIsPublic] = useState<boolean>(true)
   const [creditRequirement, setCreditRequirement] = useState<string>("")
   const [currentScreen, setCurrentScreen] = useState<"form" | "review">("form")
   const [reviewData, setReviewData] = useState<ReviewData | null>(null)
   const [isCalculatingReview, setIsCalculatingReview] = useState(false)
+  const [showRelaySteps, setShowRelaySteps] = useState(false)
 
   if (!isOpen) return null
 
@@ -110,10 +112,11 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
     }
 
     setIsCalculatingReview(true)
+    setShowRelaySteps(true)
 
     try {
-      // Call backend API to fetch credit scores (avoids CORS issues)
-      console.log(`Fetching credit scores for ${participantList.length} participants...`)
+      // Call backend API to fetch credit scores through Symbiotic Relay
+      console.log(`Fetching credit scores via Symbiotic Relay for ${participantList.length} participants...`)
       
       const creditResponse = await fetch('/api/calculate-credit-scores', {
         method: 'POST',
@@ -132,6 +135,7 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
 
       const creditData = await creditResponse.json()
       console.log('Credit scores response:', creditData)
+      console.log('Relay attestations:', creditData.relayAttestations)
 
       if (!creditData.success) {
         throw new Error(creditData.error || 'Failed to calculate credit scores')
@@ -139,6 +143,9 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
 
       const averageCreditScore = creditData.averageCreditScore || 0
       console.log(`Average credit score: ${averageCreditScore}`)
+      
+      // Wait a bit for Relay steps to complete visually (extra 3 seconds for demo)
+      await new Promise(resolve => setTimeout(resolve, 3500))
 
       // Calculate metrics
       const expectedYield = 10 // Fixed at 10%
@@ -149,9 +156,6 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
       const frequencyValue = parseFloat(paymentFrequency)
       let frequencyInSeconds: number
       switch (frequencyUnit) {
-        case "seconds":
-          frequencyInSeconds = frequencyValue
-          break
         case "days":
           frequencyInSeconds = frequencyValue * 24 * 60 * 60
           break
@@ -162,6 +166,8 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
           frequencyInSeconds = frequencyValue * 30 * 24 * 60 * 60
           break
       }
+      // Round to integer to avoid floating point precision issues when converting to BigInt
+      frequencyInSeconds = Math.round(frequencyInSeconds)
 
       const paymentAmountNum = parseFloat(paymentAmount)
       const netYearlyGain = calculateYearlyGain(paymentAmountNum, frequencyInSeconds, netAPY)
@@ -175,9 +181,11 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
       })
 
       setCurrentScreen("review")
+      setShowRelaySteps(false)
     } catch (error) {
       console.error("Error calculating review data:", error)
       alert("Error calculating pool metrics. Please try again.")
+      setShowRelaySteps(false)
     } finally {
       setIsCalculatingReview(false)
     }
@@ -199,9 +207,6 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
     const frequencyValue = parseFloat(paymentFrequency)
 
     switch (frequencyUnit) {
-      case "seconds":
-        frequencyInSeconds = frequencyValue
-        break
       case "days":
         frequencyInSeconds = frequencyValue * 24 * 60 * 60
         break
@@ -212,6 +217,8 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
         frequencyInSeconds = frequencyValue * 30 * 24 * 60 * 60 // Approximate
         break
     }
+    // Round to integer to avoid floating point precision issues when converting to BigInt
+    frequencyInSeconds = Math.round(frequencyInSeconds)
 
     // Convert payment amount to USDC (6 decimals)
     // User enters amount like "10" for 10 USDC
@@ -254,14 +261,19 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
           </div>
 
           {/* Loading Content */}
-          <div className="p-12 flex flex-col items-center justify-center space-y-4">
+          <div className="p-12 flex flex-col items-center justify-center space-y-6">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#ff1493]"></div>
             <p className="text-white/80 text-center">
-              Fetching credit scores and calculating pool metrics...
+              Calculating pool metrics...
             </p>
-            <p className="text-gray-500 text-sm text-center">
-              This may take a few seconds
-            </p>
+            {showRelaySteps && (
+              <div className="w-full max-w-md mt-4">
+                <RelayVerificationSteps 
+                  isActive={showRelaySteps}
+                  participantCount={participants.split(/[,\n]/).filter(addr => addr.trim().length > 0).length}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -300,7 +312,7 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
               
               <div className="flex justify-between items-center">
                 <span className="text-white/80">Expected Underwriter Fee</span>
-                <span className="text-white font-semibold">{reviewData.underwriterFee}%</span>
+                <span className="text-white font-semibold">-{reviewData.underwriterFee}%</span>
               </div>
             </div>
 
@@ -403,8 +415,8 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
               <div className="flex gap-2">
                 <Input
                   type="number"
-                  step="1"
-                  min="1"
+                  step="0.001"
+                  min="0.001"
                   placeholder="30"
                   value={paymentFrequency}
                   onChange={(e) => setPaymentFrequency(e.target.value)}
@@ -413,10 +425,9 @@ export function CreateGroupModal({ isOpen, onClose, onSubmit }: CreateGroupModal
                 />
                 <select
                   value={frequencyUnit}
-                  onChange={(e) => setFrequencyUnit(e.target.value as "days" | "weeks" | "months" | "seconds")}
+                  onChange={(e) => setFrequencyUnit(e.target.value as "days" | "weeks" | "months")}
                   className="px-3 py-2 bg-gray-800 border border-gray-700 rounded-md text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#ff1493]"
                 >
-                  <option value="seconds">Seconds</option>
                   <option value="days">Days</option>
                   <option value="weeks">Weeks</option>
                   <option value="months">Months</option>

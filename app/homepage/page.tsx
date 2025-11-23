@@ -531,10 +531,35 @@ export default function HomePage() {
                         </p>
                       </div>
                       {(() => {
+                        // Check if vault has funds
+                        const vaultHasFunds = onChainData?.vaultBalance 
+                          ? Number(onChainData.vaultBalance) > 0
+                          : false
+                        
                         // Check if claim date has passed
-                        const canClaim = onChainData?.claimDate 
+                        const claimDatePassed = onChainData?.claimDate 
                           ? new Date() >= new Date(onChainData.claimDate)
                           : false
+                        
+                        // Can claim if claim date has passed
+                        const canClaim = claimDatePassed
+                        
+                        // If vault is empty, always show Pay button (don't show Paid or Claim)
+                        if (!vaultHasFunds) {
+                          return (
+                            <button
+                              onClick={() => handlePay(tanda.tandaAddress)}
+                              disabled={payingTanda === tanda.tandaAddress}
+                              className={`py-2 px-6 font-semibold text-sm rounded-lg transition-opacity ${
+                                payingTanda === tanda.tandaAddress
+                                  ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                  : 'bg-[#ff1493] text-white hover:opacity-90'
+                              }`}
+                            >
+                              {payingTanda === tanda.tandaAddress ? 'Paying...' : 'Pay'}
+                            </button>
+                          )
+                        }
                         
                         if (canClaim) {
                           // Show Claim button when eligible
@@ -552,7 +577,7 @@ export default function HomePage() {
                             </button>
                           )
                         } else if (onChainData?.hasPaid === true) {
-                          // Show Paid status
+                          // Show Paid status (only if vault has funds)
                           return (
                             <span className="py-2 px-6 bg-gray-700 text-gray-300 font-semibold text-sm rounded-lg">
                               Paid

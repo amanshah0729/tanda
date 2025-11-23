@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createWalletClient, createPublicClient, http, decodeEventLog } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import TandaFactoryABI from "@/abi/TandaFactory.json"
+import TandaFactoryArtifact from "@/abi/TandaFactory.json"
+const TandaFactoryABI = TandaFactoryArtifact.abi
+import TandaArtifact from "@/abi/Tanda.json"
+const TandaABI = TandaArtifact.abi
 import { addTanda } from "@/lib/tanda-storage"
 
 // TandaFactory contract address on World Chain
-const FACTORY_ADDRESS = "0x2aef2dadd6d888c58fdf57d20721d49ea25d9583" as `0x${string}`
+const FACTORY_ADDRESS = "0x054b663b1cbb10eb631a1451e63f9a89932f1614" as `0x${string}`
 
 // World Chain configuration
 const WORLD_CHAIN_ID = 480
@@ -154,39 +157,94 @@ export const POST = async (req: NextRequest) => {
 
     // Validate credit scores BEFORE creating transaction
     const creditRequirement = parseFloat(body.creditRequirement || "0")
+    // Store proofs for on-chain verification after Tanda creation
+    const participantProofs: Map<string, string> = new Map()
+    
     if (creditRequirement > 0) {
       const participantCreditScores: Array<{ address: string; score: number }> = []
       const failedParticipants: Array<{ address: string; score: number | null }> = []
 
-      // Fetch credit scores for all participants
+      // Fetch credit scores through Symbiotic Relay for all participants
       for (const participant of body.participants) {
         try {
-          const creditResponse = await fetch(
-            `https://credit.cash/api/borrower/${participant}`,
-            {
-              method: 'GET',
-              headers: {
-                'Accept': 'application/json',
-              },
-            }
-          )
-          
+          // Get attestation from Symbiotic Relay
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+          const relayResponse = await fetch(`${baseUrl}/api/symbiotic/credit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ participantAddress: participant }),
+          })
+
           let creditScore: number | null = null
-          if (creditResponse.ok) {
-            const creditData = await creditResponse.json()
-            const rawScore = creditData.creditScore || 
-                            creditData.score || 
-                            creditData.credit_score || 
-                            creditData.data?.creditScore ||
-                            creditData.data?.score ||
-                            null
-            
-            // Handle "N/A" or null values - treat as 0 for validation
-            if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
-              creditScore = 0
+          
+          if (relayResponse.ok) {
+            const relayData = await relayResponse.json()
+            if (relayData.success) {
+              creditScore = relayData.value || 0
+              // Store proof for on-chain verification
+              if (relayData.proof) {
+                participantProofs.set(participant, relayData.proof)
+              }
+              console.log(`✓ Relay attestation for ${participant}: score=${creditScore}, proof=${relayData.proof?.slice(0, 20)}...`)
             } else {
-              const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
-              creditScore = isNaN(parsedScore) ? 0 : parsedScore
+              // Fallback to direct API if Relay fails
+              console.log(`Relay failed for ${participant}, falling back to direct API`)
+              const creditResponse = await fetch(
+                `https://credit.cash/api/borrower/${participant}`,
+                {
+                  method: 'GET',
+                  headers: {
+                    'Accept': 'application/json',
+                  },
+                }
+              )
+              
+              if (creditResponse.ok) {
+                const creditData = await creditResponse.json()
+                const rawScore = creditData.creditScore || 
+                                creditData.score || 
+                                creditData.credit_score || 
+                                creditData.data?.creditScore ||
+                                creditData.data?.score ||
+                                null
+                
+                if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
+                  creditScore = 0
+                } else {
+                  const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
+                  creditScore = isNaN(parsedScore) ? 0 : parsedScore
+                }
+              }
+            }
+          } else {
+            // Fallback to direct API if Relay endpoint fails
+            const creditResponse = await fetch(
+              `https://credit.cash/api/borrower/${participant}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/json',
+                },
+              }
+            )
+            
+            if (creditResponse.ok) {
+              const creditData = await creditResponse.json()
+              const rawScore = creditData.creditScore || 
+                              creditData.score || 
+                              creditData.credit_score || 
+                              creditData.data?.creditScore ||
+                              creditData.data?.score ||
+                              null
+              
+              if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
+                creditScore = 0
+              } else {
+                const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
+                creditScore = isNaN(parsedScore) ? 0 : parsedScore
+              }
             }
           }
 
@@ -225,6 +283,31 @@ export const POST = async (req: NextRequest) => {
           },
           { status: 400 }
         )
+      }
+    } else {
+      // Even if creditRequirement is 0, fetch proofs for on-chain verification
+      for (const participant of body.participants) {
+        try {
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+          const relayResponse = await fetch(`${baseUrl}/api/symbiotic/credit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ participantAddress: participant }),
+          })
+          
+          if (relayResponse.ok) {
+            const relayData = await relayResponse.json()
+            if (relayData.success && relayData.proof) {
+              participantProofs.set(participant, relayData.proof)
+              console.log(`✓ Stored Relay proof for ${participant}`)
+            }
+          }
+        } catch (error) {
+          console.log(`Could not fetch Relay proof for ${participant}:`, error)
+          // Continue - proof is optional
+        }
       }
     }
 
@@ -296,40 +379,87 @@ export const POST = async (req: NextRequest) => {
       console.warn("Could not read TandaCreated event, using predicted address:", error)
     }
 
-    // Calculate average credit score for all participants
+    // Calculate average credit score for all participants through Symbiotic Relay
     let averageCredit = "0"
     try {
       const creditScores: number[] = []
       for (const participant of body.participants) {
         try {
-          const creditResponse = await fetch(
-            `https://credit.cash/api/borrower/${participant}`,
-            {
-              method: 'GET',
-              headers: {
-                'Accept': 'application/json',
-              },
-            }
-          )
-          
+          // Get attestation from Symbiotic Relay
+          const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+          const relayResponse = await fetch(`${baseUrl}/api/symbiotic/credit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ participantAddress: participant }),
+          })
+
           let creditScore = 0
-          if (creditResponse.ok) {
-            const creditData = await creditResponse.json()
-            const rawScore = creditData.creditScore || 
-                            creditData.score || 
-                            creditData.credit_score || 
-                            creditData.data?.creditScore ||
-                            creditData.data?.score ||
-                            null
-            
-            // Handle "N/A" or null values - treat as 0
-            if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
-              creditScore = 0
+          
+          if (relayResponse.ok) {
+            const relayData = await relayResponse.json()
+            if (relayData.success) {
+              creditScore = relayData.value || 0
             } else {
-              const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
-              creditScore = isNaN(parsedScore) ? 0 : parsedScore
+              // Fallback to direct API if Relay fails
+              const creditResponse = await fetch(
+                `https://credit.cash/api/borrower/${participant}`,
+                {
+                  method: 'GET',
+                  headers: {
+                    'Accept': 'application/json',
+                  },
+                }
+              )
+              
+              if (creditResponse.ok) {
+                const creditData = await creditResponse.json()
+                const rawScore = creditData.creditScore || 
+                                creditData.score || 
+                                creditData.credit_score || 
+                                creditData.data?.creditScore ||
+                                creditData.data?.score ||
+                                null
+                
+                if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
+                  creditScore = 0
+                } else {
+                  const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
+                  creditScore = isNaN(parsedScore) ? 0 : parsedScore
+                }
+              }
+            }
+          } else {
+            // Fallback to direct API if Relay endpoint fails
+            const creditResponse = await fetch(
+              `https://credit.cash/api/borrower/${participant}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/json',
+                },
+              }
+            )
+            
+            if (creditResponse.ok) {
+              const creditData = await creditResponse.json()
+              const rawScore = creditData.creditScore || 
+                              creditData.score || 
+                              creditData.credit_score || 
+                              creditData.data?.creditScore ||
+                              creditData.data?.score ||
+                              null
+              
+              if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
+                creditScore = 0
+              } else {
+                const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
+                creditScore = isNaN(parsedScore) ? 0 : parsedScore
+              }
             }
           }
+          
           // Always add the score (including 0) to the array for average calculation
           creditScores.push(creditScore)
         } catch (error) {
@@ -345,6 +475,37 @@ export const POST = async (req: NextRequest) => {
       }
     } catch (error) {
       console.log('Error calculating average credit score:', error)
+    }
+
+    // Verify Relay proofs on-chain for all participants (so it shows on block explorer)
+    if (participantProofs.size > 0) {
+      try {
+        console.log(`Verifying Relay proofs on-chain for ${participantProofs.size} participants...`)
+        for (const participant of body.participants) {
+          const proof = participantProofs.get(participant)
+          if (proof) {
+            try {
+              // Call verifyAndEmitRelayProof on the Tanda contract
+              const verifyTxHash = await walletClient.writeContract({
+                address: tandaAddress,
+                abi: TandaABI,
+                functionName: "verifyAndEmitRelayProof",
+                args: [participant as `0x${string}`, proof as `0x${string}`],
+              })
+              
+              // Wait for transaction receipt
+              await publicClient.waitForTransactionReceipt({ hash: verifyTxHash })
+              console.log(`✓ Verified Relay proof for ${participant} on-chain: ${verifyTxHash}`)
+            } catch (error) {
+              console.warn(`Failed to verify Relay proof for ${participant}:`, error)
+              // Continue with other participants even if one fails
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Error verifying Relay proofs on-chain:', error)
+        // Don't fail the entire creation if verification fails
+      }
     }
 
     // Save Tanda data to JSON file

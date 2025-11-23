@@ -97,37 +97,83 @@ export const POST = async (req: NextRequest) => {
     const creditRequirement = parseFloat(tanda.creditRequirement || "0")
     if (creditRequirement > 0) {
       try {
-        // Call credit.cash API
-        const creditResponse = await fetch(
-          `https://credit.cash/api/borrower/${body.userAddress}`,
-          {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-            },
-          }
-        )
-
-        if (!creditResponse.ok) {
-          return NextResponse.json(
-            {
-              success: false,
-              error: "Failed to fetch credit score. Please try again later.",
-            },
-            { status: 500 }
-          )
-        }
-
-        const creditData = await creditResponse.json()
+        // Get credit score through Symbiotic Relay
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        const relayResponse = await fetch(`${baseUrl}/api/symbiotic/credit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ participantAddress: body.userAddress }),
+        })
         
-        // Extract credit score from response
-        // Try multiple possible field names
-        const userCreditScore = creditData.creditScore || 
-                                creditData.score || 
-                                creditData.credit_score || 
-                                creditData.data?.creditScore ||
-                                creditData.data?.score ||
-                                0
+        let userCreditScore: number | null = null
+        
+        if (relayResponse.ok) {
+          const relayData = await relayResponse.json()
+          if (relayData.success) {
+            userCreditScore = relayData.value || 0
+            console.log(`✓ Relay attestation for ${body.userAddress}: score=${userCreditScore}`)
+          } else {
+            // Fallback to direct API if Relay fails
+            const creditResponse = await fetch(
+              `https://credit.cash/api/borrower/${body.userAddress}`,
+              {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/json',
+                },
+              }
+            )
+            
+            if (!creditResponse.ok) {
+              return NextResponse.json(
+                {
+                  success: false,
+                  error: "Failed to fetch credit score. Please try again later.",
+                },
+                { status: 500 }
+              )
+            }
+            
+            const creditData = await creditResponse.json()
+            userCreditScore = creditData.creditScore || 
+                             creditData.score || 
+                             creditData.credit_score || 
+                             creditData.data?.creditScore ||
+                             creditData.data?.score ||
+                             0
+          }
+        } else {
+          // Fallback to direct API if Relay endpoint fails
+          const creditResponse = await fetch(
+            `https://credit.cash/api/borrower/${body.userAddress}`,
+            {
+              method: 'GET',
+              headers: {
+                'Accept': 'application/json',
+              },
+            }
+          )
+          
+          if (!creditResponse.ok) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: "Failed to fetch credit score. Please try again later.",
+              },
+              { status: 500 }
+            )
+          }
+          
+          const creditData = await creditResponse.json()
+          userCreditScore = creditData.creditScore || 
+                           creditData.score || 
+                           creditData.credit_score || 
+                           creditData.data?.creditScore ||
+                           creditData.data?.score ||
+                           0
+        }
 
         // If credit score is 0 or undefined, treat as insufficient
         if (!userCreditScore || userCreditScore < creditRequirement) {
@@ -255,34 +301,81 @@ export const POST = async (req: NextRequest) => {
         const creditScores: number[] = []
         for (const participant of updatedTanda.participants) {
           try {
-            const creditResponse = await fetch(
-              `https://credit.cash/api/borrower/${participant}`,
-              {
-                method: 'GET',
-                headers: {
-                  'Accept': 'application/json',
-                },
-              }
-            )
+            // Get attestation from Symbiotic Relay
+            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+            const relayResponse = await fetch(`${baseUrl}/api/symbiotic/credit`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ participantAddress: participant }),
+            })
             
             let score = 0
-            if (creditResponse.ok) {
-              const creditData = await creditResponse.json()
-              const rawScore = creditData.creditScore || 
-                              creditData.score || 
-                              creditData.credit_score || 
-                              creditData.data?.creditScore ||
-                              creditData.data?.score ||
-                              null
-              
-              // Handle "N/A" or null values - treat as 0
-              if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
-                score = 0
+            
+            if (relayResponse.ok) {
+              const relayData = await relayResponse.json()
+              if (relayData.success) {
+                score = relayData.value || 0
               } else {
-                const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
-                score = isNaN(parsedScore) ? 0 : parsedScore
+                // Fallback to direct API if Relay fails
+                const creditResponse = await fetch(
+                  `https://credit.cash/api/borrower/${participant}`,
+                  {
+                    method: 'GET',
+                    headers: {
+                      'Accept': 'application/json',
+                    },
+                  }
+                )
+                
+                if (creditResponse.ok) {
+                  const creditData = await creditResponse.json()
+                  const rawScore = creditData.creditScore || 
+                                  creditData.score || 
+                                  creditData.credit_score || 
+                                  creditData.data?.creditScore ||
+                                  creditData.data?.score ||
+                                  null
+                  
+                  if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
+                    score = 0
+                  } else {
+                    const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
+                    score = isNaN(parsedScore) ? 0 : parsedScore
+                  }
+                }
+              }
+            } else {
+              // Fallback to direct API if Relay endpoint fails
+              const creditResponse = await fetch(
+                `https://credit.cash/api/borrower/${participant}`,
+                {
+                  method: 'GET',
+                  headers: {
+                    'Accept': 'application/json',
+                  },
+                }
+              )
+              
+              if (creditResponse.ok) {
+                const creditData = await creditResponse.json()
+                const rawScore = creditData.creditScore || 
+                                creditData.score || 
+                                creditData.credit_score || 
+                                creditData.data?.creditScore ||
+                                creditData.data?.score ||
+                                null
+                
+                if (rawScore === null || rawScore === undefined || rawScore === "N/A" || rawScore === "n/a") {
+                  score = 0
+                } else {
+                  const parsedScore = typeof rawScore === 'string' ? parseFloat(rawScore) : rawScore
+                  score = isNaN(parsedScore) ? 0 : parsedScore
+                }
               }
             }
+            
             // Always add the score (including 0) to the array for average calculation
             creditScores.push(score)
           } catch (error) {
